@@ -6,14 +6,42 @@ on:
   pull_request:
     branches: [main]
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  test:
+  build-and-test:
     runs-on: macos-15
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
 
-      - name: Build
-        run: swift build
+      - name: Cache SwiftPM build
+        uses: actions/cache@v4
+        with:
+          path: .build
+          key: swiftpm-${{ runner.os }}-${{ hashFiles('Package.swift') }}
+          restore-keys: swiftpm-${{ runner.os }}-
 
-      - name: Run unit tests
-        run: swift test --filter "WAVParsingSecurityTests|DownloadSecurityTests|MetallibScriptTests"
+      - name: Build release
+        run: swift build -c release --disable-sandbox
+
+      - name: Build MLX metallib
+        run: ./scripts/build_mlx_metallib.sh release
+
+      - name: Build debug test targets
+        run: swift build --build-tests --disable-sandbox
+
+      - name: Copy metallib to test bundle
+        run: |
+          ARCH="$(uname -m)-apple-macosx"
+          for BUNDLE in .build/$ARCH/debug/*.xctest/Contents/MacOS; do
+            [ -d "$BUNDLE" ] && cp .build/release/mlx.metallib "$BUNDLE/"
+            echo "Copied metallib to $BUNDLE"
+          done
+
+      - name: Run tests
+        run: >
+          swift test --skip-build --filter
+          "WAVParsingSecurityTests|DownloadSecurityTests|MetallibScriptTests|DERScoringTests|SpectralClusteringTests|Qwen3TTSConfigTests|CosyVoiceTTSConfigTests|SamplingTests|PersonaPlexTests/testDefaultConfig|PersonaPlexTests/testDepformerConfig|PersonaPlexTests/testMimiConfig|PersonaPlexTests/testSamplingConfig|PersonaPlexTests/testEntropyConfig|PersonaPlexTests/testAudioChunk|PersonaPlexTests/testSilenceTokens|PersonaPlexTests/testDelayPattern|PersonaPlexTests/testVoicePresets|PersonaPlexTests/testHiddenScale|PersonaPlexTests/testDepformerDim|ForcedAlignerTests/testText|ForcedAlignerTests/testTimestamp|ForcedAlignerTests/testLIS|SileroVADTests/testSilero|SileroVADTests/testReflection|SileroVADTests/testProcess|SileroVADTests/testReset|SileroVADTests/testDetect|SileroVADTests/testStreaming|SileroVADTests/testVADEvent"
