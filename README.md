@@ -33,6 +33,8 @@ See [Roadmap discussion](https://github.com/soniqo/speech-swift/discussions/81) 
 | Qwen3-ASR-1.7B (8-bit) | Speech → Text | No | 52 languages | ~2.5 GB |
 | Parakeet-TDT-0.6B (INT4, CoreML) | Speech → Text | No | 25 European languages | ~315 MB |
 | Qwen3-ForcedAligner-0.6B (4-bit) | Audio + Text → Timestamps | No | Multi | ~979 MB |
+| Qwen3-ForcedAligner-0.6B (8-bit) | Audio + Text → Timestamps | No | Multi | ~1.3 GB |
+| Qwen3-ForcedAligner-0.6B (bf16) | Audio + Text → Timestamps | No | Multi | ~1.8 GB |
 | Qwen3-TTS-0.6B Base (4-bit) | Text → Speech | Yes (~120ms) | 10 languages | ~1.7 GB |
 | Qwen3-TTS-0.6B CustomVoice (4-bit) | Text → Speech | Yes (~120ms) | 10 languages | ~1.7 GB |
 | CosyVoice3-0.5B (4-bit) | Text → Speech | Yes (~150ms) | 9 languages | ~1.9 GB |
@@ -52,6 +54,8 @@ Weight memory is the GPU (MLX) or ANE (CoreML) memory consumed by model paramete
 | Qwen3-ASR-1.7B (8-bit) | 2,349 MB | ~4 GB | No |
 | Parakeet-TDT-0.6B (CoreML) | 315 MB | ~400 MB | Yes |
 | Qwen3-ForcedAligner-0.6B (4-bit) | 933 MB | ~1.5 GB | Yes |
+| Qwen3-ForcedAligner-0.6B (8-bit) | 1,217 MB | ~2.0 GB | Yes |
+| Qwen3-ForcedAligner-0.6B (bf16) | 1,750 MB | ~2.5 GB | Yes |
 | Qwen3-TTS-0.6B (4-bit) | 977 MB | ~2 GB | Yes |
 | CosyVoice3-0.5B (4-bit) | 732 MB | ~1.5 GB | Yes |
 | PersonaPlex-7B (4-bit) | 5,543 MB | ~6.5 GB | No |
