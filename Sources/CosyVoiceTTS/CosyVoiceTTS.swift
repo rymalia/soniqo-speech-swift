@@ -184,6 +184,65 @@ public final class CosyVoiceTTSModel {
         return audio.reshaped(-1).asArray(Float.self)
     }
 
+    /// Synthesize speech from text with a cloned voice.
+    ///
+    /// Uses a 192-dim CAM++ speaker embedding to condition the flow model,
+    /// producing speech that mimics the voice characteristics of the embedding.
+    ///
+    /// - Parameters:
+    ///   - text: Text to synthesize
+    ///   - language: Target language
+    ///   - speakerEmbedding: 192-dim speaker embedding from CAM++
+    ///   - verbose: Print timing info
+    /// - Returns: Array of float audio samples at 24kHz
+    public func synthesize(
+        text: String,
+        language: String = "english",
+        speakerEmbedding: [Float],
+        verbose: Bool = false
+    ) -> [Float] {
+        // 1. Tokenize text
+        let textTokens = tokenizeText(text, language: language)
+
+        // 2. Generate speech tokens via LLM
+        var t0 = CFAbsoluteTimeGetCurrent()
+        let speechTokens = llm.generate(
+            textTokens: textTokens,
+            maxTokens: 500
+        )
+        if verbose {
+            let llmTime = CFAbsoluteTimeGetCurrent() - t0
+            print(String(format: "  LLM: %.0fms (%d tokens, %.1fms/token)",
+                         llmTime * 1000, speechTokens.count,
+                         speechTokens.isEmpty ? 0 : llmTime * 1000 / Double(speechTokens.count)))
+        }
+
+        guard !speechTokens.isEmpty else {
+            return []
+        }
+
+        // 3. Convert speech tokens to mel via flow matching with speaker conditioning
+        t0 = CFAbsoluteTimeGetCurrent()
+        let tokenArray = MLXArray(speechTokens).expandedDimensions(axis: 0)  // [1, T]
+        let spkEmb = MLXArray(speakerEmbedding).expandedDimensions(axis: 0)  // [1, 192]
+        let mel = flow(tokens: tokenArray, spkEmbedding: spkEmb)  // [1, 80, T_mel]
+        eval(mel)
+        if verbose {
+            print(String(format: "  Flow: %.0fms (speaker-conditioned)",
+                         (CFAbsoluteTimeGetCurrent() - t0) * 1000))
+        }
+
+        // 4. Convert mel to waveform via HiFi-GAN
+        t0 = CFAbsoluteTimeGetCurrent()
+        let audio = hifigan(mel)
+        eval(audio)
+        if verbose {
+            print(String(format: "  HiFi-GAN: %.0fms", (CFAbsoluteTimeGetCurrent() - t0) * 1000))
+        }
+
+        return audio.reshaped(-1).asArray(Float.self)
+    }
+
     /// Synthesize with streaming output.
     public func synthesizeStream(
         text: String,

@@ -37,7 +37,7 @@ public struct SpeakCommand: ParsableCommand {
     @Option(name: .long, help: "[qwen3] Style instruction (requires CustomVoice model)")
     public var instruct: String?
 
-    @Option(name: .long, help: "[qwen3] Reference audio file for voice cloning (Base model)")
+    @Option(name: .long, help: "Reference audio file for voice cloning (qwen3 Base or cosyvoice)")
     public var voiceSample: String?
 
     @Option(name: .long, help: "[qwen3] Model variant: base (default), base-8bit, 1.7b, 1.7b-8bit, customVoice, or full HF model ID. Note: --speaker requires customVoice.")
@@ -336,7 +336,28 @@ public struct SpeakCommand: ParsableCommand {
                 throw ExitCode(1)
             }
 
-            print("Synthesizing: \"\(inputText)\"")
+            // Voice cloning: load CAM++ speaker encoder and extract embedding
+            var speakerEmbedding: [Float]?
+            #if canImport(CoreML)
+            if let voiceSamplePath = voiceSample {
+                let refURL = URL(fileURLWithPath: voiceSamplePath)
+                let refSamples = try AudioFileLoader.load(url: refURL, targetSampleRate: 16000)
+                print("  Reference audio: \(refSamples.count) samples (\(String(format: "%.1f", Double(refSamples.count) / 16000.0))s)")
+
+                print("Loading CAM++ speaker encoder...")
+                let speaker = try await CamPlusPlusSpeaker.fromPretrained { progress, status in
+                    reportProgress(progress, status)
+                }
+
+                let embedding = try speaker.embed(audio: refSamples, sampleRate: 16000)
+                speakerEmbedding = embedding
+                print("  Speaker embedding: \(embedding.count)-dim")
+            }
+            #endif
+
+            var info = "Synthesizing: \"\(inputText)\""
+            if voiceSample != nil { info += " [voice clone]" }
+            print(info)
             print("  Language: \(effectiveLanguage)")
 
             let startTime = CFAbsoluteTimeGetCurrent()
@@ -364,8 +385,15 @@ public struct SpeakCommand: ParsableCommand {
                     self.playAudio(samples: allSamples, sampleRate: 24000)
                 }
             } else {
-                let samples = cosyModel.synthesize(
-                    text: inputText, language: self.effectiveLanguage, verbose: self.verbose)
+                let samples: [Float]
+                if let embedding = speakerEmbedding {
+                    samples = cosyModel.synthesize(
+                        text: inputText, language: self.effectiveLanguage,
+                        speakerEmbedding: embedding, verbose: self.verbose)
+                } else {
+                    samples = cosyModel.synthesize(
+                        text: inputText, language: self.effectiveLanguage, verbose: self.verbose)
+                }
 
                 let elapsed = CFAbsoluteTimeGetCurrent() - startTime
                 let duration = Double(samples.count) / 24000.0
