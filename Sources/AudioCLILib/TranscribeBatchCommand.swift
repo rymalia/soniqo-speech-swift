@@ -168,6 +168,7 @@ public struct TranscribeBatchCommand: ParsableCommand {
             var totalAudio = 0.0
 
             for (idx, fileURL) in files.enumerated() {
+                try autoreleasepool {
                 let name = fileURL.deletingPathExtension().lastPathComponent
                 let pct = Double(idx + 1) / Double(files.count) * 100
 
@@ -204,6 +205,7 @@ public struct TranscribeBatchCommand: ParsableCommand {
                 } catch {
                     print("  [\(idx + 1)/\(files.count)] \(name): ERROR - \(error)")
                 }
+                } // autoreleasepool
             }
 
             let aggRTF = totalInference / max(totalAudio, 0.001)
