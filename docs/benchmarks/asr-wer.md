@@ -42,13 +42,19 @@ Whisper numbers from original papers (FP16 inference).
 
 ## Compression delta
 
-| Variant | WER% | Substitutions | Insertions | Deletions | Total errors |
-|---------|------|---------------|------------|-----------|-------------|
-| Qwen3 0.6B 8-bit | 2.80 | 1111 | 92 | 268 | 1471 |
-| Qwen3 0.6B 4-bit | 3.34 | 1323 | 123 | 308 | 1754 |
-| Delta | +0.54 | +212 | +31 | +40 | +283 |
+| Variant | WER% | Substitutions | Insertions | Deletions | Total errors | Size |
+|---------|------|---------------|------------|-----------|-------------|------|
+| Qwen3 0.6B 8-bit | 2.80 | 1111 | 92 | 268 | 1471 | 960 MB |
+| Qwen3 0.6B 4-bit | 3.34 | 1323 | 123 | 308 | 1754 | 675 MB |
+| Delta | +0.54 | +212 | +31 | +40 | +283 | -30% |
+| | | | | | | |
+| Parakeet TDT INT8 | 2.74 | 990 | 125 | 308 | 1423 | 634 MB |
+| Parakeet TDT INT4 | 3.68 | 1279 | 138 | 493 | 1910 | 332 MB |
+| Delta | +0.94 | +289 | +13 | +185 | +487 | -48% |
 
-4-bit adds 0.54% WER (19% more errors). Model size: 675 MB (4-bit) vs 960 MB (8-bit) — 30% smaller.
+**Qwen3-ASR**: 4-bit adds 0.54% WER (19% more errors) for 30% size reduction.
+
+**Parakeet TDT**: INT4 adds 0.94% WER (34% more errors) for 48% size reduction. INT4 loses more quality than Qwen3's 4-bit — CoreML k-means palettization is less precise than MLX group quantization at low bit widths.
 
 ## Reproduction
 
