@@ -3,6 +3,7 @@
 ## Datasets
 
 - **LibriSpeech test-clean** — 2620 utterances, ~5.4 hours, English read speech (standard ASR benchmark)
+- **FLEURS** — multilingual (10 languages), ~400-900 utterances per language, freely downloadable
 - **CommonVoice** — multilingual (EN, ZH, DE, ES, FR), crowd-sourced read speech (requires manual download from commonvoice.mozilla.org)
 
 ## Results
@@ -41,6 +42,25 @@
 
 Whisper numbers from original papers (FP16 inference).
 
+## Multilingual results (FLEURS)
+
+Qwen3-ASR 0.6B 4-bit on FLEURS test splits. CER used for CJK languages (no word boundaries).
+
+| Language | Code | Metric | Error% | Utterances |
+|----------|------|--------|--------|-----------|
+| Spanish | es_419 | WER | 6.44 | 908 |
+| English | en_us | WER | 6.57 | 647 |
+| Chinese | cmn_hans_cn | CER | 8.41 | 945 |
+| German | de_de | WER | 9.45 | 862 |
+| French | fr_fr | WER | 11.42 | 676 |
+| Japanese | ja_jp | CER | 16.11 | 650 |
+| Russian | ru_ru | WER | 16.35 | 775 |
+| Korean | ko_kr | WER | 19.95 | 382 |
+| Hindi | hi_in | WER | 25.93 | 418 |
+| Arabic | ar_eg | WER | 33.47 | 428 |
+
+Best on European languages (EN/ES/DE/FR under 12%). CJK is reasonable (ZH 8.4%, JA 16.1%). Arabic and Hindi are weaker — likely less training data for these languages in the 0.6B model.
+
 ## Compression delta
 
 How much accuracy do we lose by quantizing to lower bit widths? This establishes the baseline quality cost of our current quantization before trying more advanced techniques like mixed-bit allocation or outlier decomposition.
@@ -70,12 +90,10 @@ python scripts/benchmark_asr.py --batch --engine parakeet --model int8
 
 First run downloads LibriSpeech test-clean (~350 MB). Results saved to `benchmarks/librispeech/`.
 
-### CommonVoice (multilingual)
+### FLEURS (multilingual, auto-download)
 
 ```bash
-# Download data manually from https://commonvoice.mozilla.org/en/datasets
-# Extract test.tsv + clips/ to benchmarks/commonvoice/<lang>/
-python scripts/benchmark_asr.py --dataset commonvoice --language en --batch
-python scripts/benchmark_asr.py --dataset commonvoice --language zh-CN --batch
-python scripts/benchmark_asr.py --dataset commonvoice --language de --batch
+python scripts/benchmark_asr.py --dataset fleurs --language en_us --batch
+python scripts/benchmark_asr.py --dataset fleurs --language cmn_hans_cn --batch
+python scripts/benchmark_asr.py --dataset fleurs --language de_de --batch
 ```

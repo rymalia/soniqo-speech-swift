@@ -42,6 +42,22 @@ COMMONVOICE_LANGUAGES = {
     "fr": "French",
 }
 
+# FLEURS — freely downloadable, ~400 utterances per language, 102 languages
+FLEURS_LANGUAGES = {
+    "en_us": "English",
+    "cmn_hans_cn": "Chinese",
+    "de_de": "German",
+    "es_419": "Spanish",
+    "fr_fr": "French",
+    "ja_jp": "Japanese",
+    "ko_kr": "Korean",
+    "ru_ru": "Russian",
+    "ar_eg": "Arabic",
+    "hi_in": "Hindi",
+    "it_it": "Italian",
+    "pt_br": "Portuguese",
+}
+
 BENCHMARK_BASE = Path("benchmarks")
 
 
@@ -57,10 +73,27 @@ def normalize_text(text: str) -> str:
     return text
 
 
+def is_cjk(text: str) -> bool:
+    """Check if text is primarily CJK (Chinese/Japanese/Korean)."""
+    cjk_count = sum(1 for c in text if '\u4e00' <= c <= '\u9fff'
+                    or '\u3040' <= c <= '\u309f'  # hiragana
+                    or '\u30a0' <= c <= '\u30ff'  # katakana
+                    or '\uac00' <= c <= '\ud7af')  # hangul
+    return cjk_count > len(text) * 0.3
+
+
 def compute_wer(reference: str, hypothesis: str) -> dict:
-    """Word Error Rate via edit distance with S/I/D breakdown."""
-    ref = normalize_text(reference).split()
-    hyp = normalize_text(hypothesis).split()
+    """Word Error Rate (or Character Error Rate for CJK) via edit distance."""
+    ref_norm = normalize_text(reference)
+    hyp_norm = normalize_text(hypothesis)
+
+    # Use character-level for CJK languages (no word boundaries)
+    if is_cjk(ref_norm):
+        ref = list(ref_norm.replace(" ", ""))
+        hyp = list(hyp_norm.replace(" ", ""))
+    else:
+        ref = ref_norm.split()
+        hyp = hyp_norm.split()
 
     n = len(ref)
     m = len(hyp)
@@ -223,6 +256,96 @@ def load_commonvoice(language: str, num_files: int = 0) -> list:
             if text:
                 utt_id = Path(row["path"]).stem
                 utterances.append((utt_id, str(audio_path), text, language))
+
+    utterances.sort(key=lambda x: x[0])
+    return utterances[:num_files] if num_files > 0 else utterances
+
+
+# ---------------------------------------------------------------------------
+# FLEURS download & loading
+# ---------------------------------------------------------------------------
+
+def download_fleurs(language: str):
+    """Download FLEURS test split from HuggingFace."""
+    bench_dir = BENCHMARK_BASE / "fleurs" / language
+    audio_dir = bench_dir / "audio"
+    tsv_path = bench_dir / "test.tsv"
+
+    if audio_dir.exists() and tsv_path.exists() and \
+       any(audio_dir.glob("*.wav")):
+        print(f"FLEURS {language} already at {bench_dir}")
+        return True
+
+    try:
+        from huggingface_hub import hf_hub_download
+    except ImportError:
+        print("Install: pip install huggingface_hub")
+        return False
+
+    lang_name = FLEURS_LANGUAGES.get(language, language)
+    print(f"Downloading FLEURS {lang_name} ({language}) test split...")
+
+    bench_dir.mkdir(parents=True, exist_ok=True)
+    audio_dir.mkdir(parents=True, exist_ok=True)
+
+    try:
+        # Download test.tsv
+        tsv_file = hf_hub_download(
+            "google/fleurs", f"data/{language}/test.tsv",
+            repo_type="dataset")
+        import shutil
+        shutil.copy2(tsv_file, str(tsv_path))
+
+        # Download audio tar.gz and extract
+        tar_file = hf_hub_download(
+            "google/fleurs", f"data/{language}/audio/test.tar.gz",
+            repo_type="dataset")
+        print(f"  Extracting audio...")
+        with tarfile.open(tar_file, "r:gz") as tf:
+            tf.extractall(audio_dir)
+    except Exception as e:
+        print(f"  Download failed: {e}")
+        return False
+
+    count = len(list(audio_dir.rglob("*.wav")))
+    print(f"  {count} audio files")
+    return count > 0
+
+
+def load_fleurs(language: str, num_files: int = 0) -> list:
+    """Load FLEURS test transcripts. Returns [(id, path, text, lang)]."""
+    bench_dir = BENCHMARK_BASE / "fleurs" / language
+    tsv_path = bench_dir / "test.tsv"
+    audio_dir = bench_dir / "audio"
+
+    if not tsv_path.exists():
+        return []
+
+    lang_hint_map = {
+        "en_us": "english", "cmn_hans_cn": "chinese", "de_de": "german",
+        "es_419": "spanish", "fr_fr": "french", "ja_jp": "japanese",
+        "ko_kr": "korean", "ru_ru": "russian", "ar_eg": "arabic",
+        "hi_in": "hindi", "it_it": "italian", "pt_br": "portuguese",
+    }
+    lang_hint = lang_hint_map.get(language)
+
+    # FLEURS TSV: id \t filename.wav \t raw_text \t normalized_text \t letters \t num_samples \t gender
+    utterances = []
+    for line in tsv_path.read_text().strip().split("\n"):
+        parts = line.split("\t")
+        if len(parts) < 3:
+            continue
+        filename = parts[1]
+        text = parts[2]  # raw transcription (with punctuation)
+        wav_path = audio_dir / filename
+        if not wav_path.exists():
+            # Try subdirectory (tar may extract with path prefix)
+            matches = list(audio_dir.rglob(filename))
+            if matches:
+                wav_path = matches[0]
+        if wav_path.exists() and text.strip():
+            utt_id = Path(filename).stem
+            utterances.append((utt_id, str(wav_path), text.strip(), lang_hint))
 
     utterances.sort(key=lambda x: x[0])
     return utterances[:num_files] if num_files > 0 else utterances
@@ -605,10 +728,11 @@ def main():
     parser.add_argument("--cli-path", default=".build/release/audio",
                         help="Path to audio CLI binary")
     parser.add_argument("--dataset", default="librispeech",
-                        choices=["librispeech", "commonvoice"],
+                        choices=["librispeech", "commonvoice", "fleurs"],
                         help="Benchmark dataset")
     parser.add_argument("--language", default="en",
-                        help="Language for CommonVoice (en, zh-CN, de, es, fr)")
+                        help="Language code (CommonVoice: en, zh-CN, de, es, fr; "
+                             "FLEURS: en_us, zh_cn, de_de, es_419, fr_fr, ja_jp, ...)")
     parser.add_argument("--engine", default="qwen3",
                         help="ASR engine: qwen3, parakeet, qwen3-coreml")
     parser.add_argument("--model", default="0.6B",
@@ -630,14 +754,22 @@ def main():
     args = parser.parse_args()
 
     # Dataset selection
-    if args.dataset == "commonvoice":
+    if args.dataset == "fleurs":
+        if not args.score_only:
+            available = download_fleurs(args.language)
+            if args.download_only:
+                return
+            if not available:
+                sys.exit(1)
+        utterances = load_fleurs(args.language, args.num_files)
+        dataset_name = f"fleurs-{args.language}"
+    elif args.dataset == "commonvoice":
         if not args.score_only:
             available = download_commonvoice(args.language)
             if args.download_only:
                 return
             if not available:
                 sys.exit(1)
-
         utterances = load_commonvoice(args.language, args.num_files)
         dataset_name = f"commonvoice-{args.language}"
     else:
