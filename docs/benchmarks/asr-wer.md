@@ -22,7 +22,7 @@
 - Parakeet INT8 achieves the best WER (1.84%) but has a slow cold start (128.9s CoreML compilation)
 - Qwen3-ASR MLX is 10x faster to load (2.4s vs 23-129s) and has the fastest RTF (0.023)
 - CoreML+MLX hybrid uses ANE for encoder + GPU for decoder, freeing GPU for other tasks
-- Parakeet INT8 has 3.3x faster RTF than INT4 (0.089 vs 0.295) but 5.5x slower cold start (129s vs 23s)
+- Parakeet INT8 is 3.3x faster than INT4 (RTF 0.089 vs 0.298, verified over 3 runs). CoreML's Neural Engine processes INT8 natively; INT4 palettization adds per-operation dequantization overhead that outweighs the smaller model size. INT8 has a slower cold start (129s vs 23s) due to larger CoreML compilation
 
 ## Comparison with published models
 
