@@ -1226,6 +1226,33 @@ final class E2ETTS17BTests: XCTestCase {
     }
 }
 
+// MARK: - Long Text Memory Regression
+
+final class E2ETTSLongTextTests: XCTestCase {
+
+    /// Verify long text synthesis completes without OOM.
+    /// Before the chunkedDecode eval fix, this peaked at 17+ GB and crashed on 16 GB Macs.
+    func testLongTextDoesNotOOM() async throws {
+        let model = try await Qwen3TTSModel.fromPretrained(
+            modelId: "aufklarer/Qwen3-TTS-12Hz-0.6B-Base-MLX-4bit"
+        ) { _, _ in }
+
+        let longText = "In the beginning of a new era of artificial intelligence, " +
+            "researchers around the world are working tirelessly to develop models " +
+            "that can understand and generate human speech with unprecedented accuracy " +
+            "and naturalness, pushing the boundaries of what was previously thought " +
+            "possible in the field of computational linguistics and audio processing."
+
+        let samples = model.synthesize(text: longText, language: "english")
+
+        // Should produce audio without crashing
+        XCTAssertGreaterThan(samples.count, 0, "Should produce audio for long text")
+        let duration = Double(samples.count) / 24000.0
+        XCTAssertGreaterThan(duration, 2.0, "Long text should produce at least 2s of audio")
+        print("Long text: \(samples.count) samples (\(String(format: "%.1f", duration))s)")
+    }
+}
+
 // MARK: - Batch TTS Tests
 
 final class E2ETTSBatchTests: XCTestCase {
