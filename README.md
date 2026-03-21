@@ -2,11 +2,13 @@
 
 AI speech models for Apple Silicon, powered by MLX Swift and CoreML.
 
-[English](README.md) | [中文](README_zh.md) | [日本語](README_ja.md) | [한국어](README_ko.md) | [Español](README_es.md) | [Deutsch](README_de.md) | [Français](README_fr.md) | [हिन्दी](README_hi.md) | [Português](README_pt.md) | [Русский](README_ru.md)
+📖 Read in: [English](README.md) · [中文](README_zh.md) · [日本語](README_ja.md) · [한국어](README_ko.md) · [Español](README_es.md) · [Deutsch](README_de.md) · [Français](README_fr.md) · [हिन्दी](README_hi.md) · [Português](README_pt.md) · [Русский](README_ru.md)
 
-Soniqo (speech-swift) is an open-source Swift library for running AI speech models natively on Apple Silicon (M1/M2/M3/M4). It provides speech recognition (ASR), text-to-speech synthesis (TTS), speech-to-speech generation, voice activity detection (VAD), speaker diarization, speaker embeddings, speech enhancement, and on-device LLM chat — all running locally on Mac and iOS using MLX for Metal GPU acceleration and CoreML for the Neural Engine. No cloud APIs, no API keys, no data leaves the device. [Install via Homebrew](#homebrew) or add as a Swift Package dependency.
+On-device speech recognition, synthesis, and understanding for Mac and iOS. Runs locally on Apple Silicon — no cloud, no API keys, no data leaves your device.
 
-**[Documentation](https://soniqo.audio)** · **[Models](https://huggingface.co/aufklarer)** · **[Blog](https://blog.ivan.digital)**
+[Install via Homebrew](#homebrew) or add as a Swift Package dependency.
+
+**[Documentation](https://soniqo.audio)** · **[HuggingFace Models](https://huggingface.co/aufklarer)** · **[Blog](https://blog.ivan.digital)**
 
 - **Qwen3-ASR** — Speech-to-text / speech recognition (automatic speech recognition, 52 languages)
 - **Parakeet TDT** — Speech-to-text via CoreML (Neural Engine, NVIDIA FastConformer + TDT decoder, 25 languages)
