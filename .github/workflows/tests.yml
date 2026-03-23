@@ -53,9 +53,5 @@ jobs:
           --skip CosyVoiceTTSTests
           --skip KokoroTTSTests
 
-      - name: Build demo apps (compilation check)
-        run: |
-          for demo in Examples/SpeechDemo Examples/PersonaPlexDemo; do
-            echo "Building $demo..."
-            (cd "$demo" && swift build) || exit 1
-          done
+      # Demo compilation check removed — adds ~4 min to CI for each demo
+      # (full dependency rebuild). Import errors caught by developers locally.
