@@ -53,12 +53,13 @@ public final class Qwen3TTSCoreMLModel {
             ) { progress in progressHandler?(progress * 0.7, "Downloading model...") }
         }
 
+        // Force CPU-only for all models to match Python coremltools precision.
+        // ANE/GPU produce different FP16 results that compound in autoregressive loop.
         let config = MLModelConfiguration()
-        config.computeUnits = computeUnits
+        config.computeUnits = .cpuOnly
 
-        // MCD needs FP32 (large RMSNorm weights cause NaN in FP16)
         let mcdConfig = MLModelConfiguration()
-        mcdConfig.computeUnits = .cpuAndNeuralEngine
+        mcdConfig.computeUnits = .cpuOnly
 
         let model = Qwen3TTSCoreMLModel()
 
