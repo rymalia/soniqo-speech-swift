@@ -238,7 +238,7 @@ let package = Package(
         ),
         .testTarget(
             name: "Qwen3TTSCoreMLTests",
-            dependencies: ["Qwen3TTSCoreML", "AudioCommon"]
+            dependencies: ["Qwen3TTSCoreML", "Qwen3ASR", "AudioCommon"]
         ),
         .testTarget(
             name: "CosyVoiceTTSTests",

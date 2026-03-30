@@ -45,37 +45,46 @@ final class TalkerGenerator {
     // MARK: - Cache Management
 
     func resetCache() {
+        let kvSize = totalKVDim * maxSeqLen
         keyCache = makeZeroArray(shape: [1, totalKVDim, 1, maxSeqLen])
         valueCache = makeZeroArray(shape: [1, totalKVDim, 1, maxSeqLen])
         currentPos = 0
+        print("[Talker] Cache reset: maxSeqLen=\(maxSeqLen), kvDim=\(totalKVDim)")
     }
+
+    /// Last hidden state from the most recent forward pass [1, 1024, 1, 1].
+    private(set) var lastHiddenState: MLMultiArray?
 
     // MARK: - Forward Pass
 
-    /// Run a single-token decode step.
-    ///
-    /// - Parameter embed: Input embedding [hiddenSize] as Float16 (will be reshaped to NCHW)
-    /// - Returns: (logits [codecVocabSize] as Float, hiddenState [hiddenSize] as Float16)
-    func forward(embed: [Float16]) throws -> (logits: [Float], hidden: [Float16]) {
-        guard currentPos < maxSeqLen else {
-            throw TalkerError.cacheFull
-        }
+    /// Run a single-token decode step with pre-built MLMultiArray [1, 1024, 1, 1].
+    func forward(embedArray: MLMultiArray) throws -> (logits: [Float], hidden: [Float16]) {
+        let embed = ensureNCHW(embedArray, channels: hiddenSize)
+        return try forwardInternal(inputEmbeds: embed)
+    }
 
-        // Input: [1, hiddenSize, 1, 1] — NCHW single token
+    /// Run a single-token decode step with [Float16] array.
+    func forward(embed: [Float16]) throws -> (logits: [Float], hidden: [Float16]) {
         let inputEmbeds = try MLMultiArray(
             shape: [1, NSNumber(value: hiddenSize), 1, 1], dataType: .float16)
         let embPtr = inputEmbeds.dataPointer.assumingMemoryBound(to: Float16.self)
         for i in 0..<hiddenSize { embPtr[i] = embed[i] }
+        return try forwardInternal(inputEmbeds: inputEmbeds)
+    }
 
-        // RoPE cos/sin for current position: [1, headDim, 1]
-        let ropeCos = try makeRoPEArray(position: currentPos, isCos: true)
-        let ropeSin = try makeRoPEArray(position: currentPos, isCos: false)
+    private func forwardInternal(inputEmbeds: MLMultiArray) throws -> (logits: [Float], hidden: [Float16]) {
+        guard currentPos < maxSeqLen else {
+            throw TalkerError.cacheFull
+        }
 
-        // Key padding mask: [1, maxSeqLen] — 0 for valid, -1e4 for masked
+        let cacheLength = try MLMultiArray(shape: [1], dataType: .int32)
+        cacheLength.dataPointer.assumingMemoryBound(to: Int32.self)[0] = Int32(currentPos)
+
+        // Key padding mask: [1, maxSeqLen] — 0 for valid, -inf for masked
         let keyPaddingMask = try MLMultiArray(
             shape: [1, NSNumber(value: maxSeqLen)], dataType: .float16)
         let maskPtr = keyPaddingMask.dataPointer.assumingMemoryBound(to: Float16.self)
-        let maskVal = Float16(-1e4)
+        let maskVal = Float16(-1e4)  // -10000, NOT -inf (matches conversion script)
         for i in 0..<maxSeqLen {
             maskPtr[i] = i <= currentPos ? Float16(0) : maskVal
         }
@@ -90,8 +99,7 @@ final class TalkerGenerator {
         // Build inputs
         let inputs: [String: MLFeatureValue] = [
             "input_embeds": MLFeatureValue(multiArray: inputEmbeds),
-            "rope_cos": MLFeatureValue(multiArray: ropeCos),
-            "rope_sin": MLFeatureValue(multiArray: ropeSin),
+            "cache_length": MLFeatureValue(multiArray: cacheLength),
             "key_padding_mask": MLFeatureValue(multiArray: keyPaddingMask),
             "kv_cache_update_mask": MLFeatureValue(multiArray: updateMask),
             "key_cache": MLFeatureValue(multiArray: keyCache),
@@ -101,20 +109,21 @@ final class TalkerGenerator {
         let provider = try MLDictionaryFeatureProvider(dictionary: inputs)
         let result = try model.prediction(from: provider)
 
-        // Extract outputs — all in NCHW format
-        let logitsArray = result.featureValue(for: "logits")!.multiArrayValue!      // [1, 3072, 1, 1]
-        let hiddenArray = result.featureValue(for: "hidden_states")!.multiArrayValue! // [1, 1024, 1, 1]
-        let keyCacheUpdates = result.featureValue(for: "key_cache_updates")!.multiArrayValue!
-        let valueCacheUpdates = result.featureValue(for: "value_cache_updates")!.multiArrayValue!
+        // Extract outputs
+        let logitsArray = result.featureValue(for: "logits")!.multiArrayValue!         // [1, 1, 3072]
+        let hiddenArray = result.featureValue(for: "hidden_states")!.multiArrayValue!  // [1, 1024, 1, 1]
 
-        // Scatter-write cache updates at currentPos
-        updateCache(updates: keyCacheUpdates, into: &keyCache!, at: currentPos)
-        updateCache(updates: valueCacheUpdates, into: &valueCache!, at: currentPos)
+        // Update KV cache — model returns full updated cache
+        keyCache = result.featureValue(for: "new_key_cache")!.multiArrayValue!
+        valueCache = result.featureValue(for: "new_value_cache")!.multiArrayValue!
 
         currentPos += 1
 
-        // Extract logits [3072] and hidden [1024]
-        let logits = extractNCHW(logitsArray, channels: 3072)
+        // Save hidden state for MultiCodeDecoder
+        lastHiddenState = hiddenArray
+
+        // Extract logits — shape is [1, 1, 3072]
+        let logits = extractLogits(logitsArray, vocabSize: 3072)
         let hidden = extractNCHWFloat16(hiddenArray, channels: hiddenSize)
 
         return (logits, hidden)
@@ -172,6 +181,19 @@ final class TalkerGenerator {
         for ch in 0..<totalKVDim {
             dstPtr[ch * maxSeqLen + position] = srcPtr[ch]
         }
+    }
+
+    /// Extract Float32 logits from [1, 1, vocabSize] array.
+    private func extractLogits(_ array: MLMultiArray, vocabSize: Int) -> [Float] {
+        var result = [Float](repeating: 0, count: vocabSize)
+        if array.dataType == .float16 {
+            let ptr = array.dataPointer.assumingMemoryBound(to: Float16.self)
+            for i in 0..<vocabSize { result[i] = Float(ptr[i]) }
+        } else {
+            let ptr = array.dataPointer.assumingMemoryBound(to: Float.self)
+            for i in 0..<vocabSize { result[i] = ptr[i] }
+        }
+        return result
     }
 
     /// Extract Float32 values from NCHW array [1, channels, 1, 1].

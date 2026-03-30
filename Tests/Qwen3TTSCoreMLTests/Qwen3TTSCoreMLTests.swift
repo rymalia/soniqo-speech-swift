@@ -1,5 +1,6 @@
 import XCTest
 @testable import Qwen3TTSCoreML
+@testable import Qwen3ASR
 import AudioCommon
 
 #if canImport(CoreML)
@@ -108,6 +109,43 @@ final class E2EQwen3TTSCoreMLTests: XCTestCase {
         // Test via protocol
         let audio = try await model.generate(text: "Test", language: "english")
         XCTAssertGreaterThan(audio.count, 0)
+    }
+
+    /// Round-trip: synthesize → transcribe → verify keywords recognized.
+    func testRoundTripSynthesizeTranscribe() async throws {
+        let ttsModel: Qwen3TTSCoreMLModel
+        do {
+            ttsModel = try await Qwen3TTSCoreMLModel.fromPretrained()
+        } catch {
+            throw XCTSkip("TTS model not available: \(error)")
+        }
+        defer { ttsModel.unload() }
+
+        let asrModel: Qwen3ASRModel
+        do {
+            asrModel = try await Qwen3ASRModel.fromPretrained()
+        } catch {
+            throw XCTSkip("ASR model not available: \(error)")
+        }
+
+        let text = "Hello world"
+        let audio = try ttsModel.synthesize(text: text, language: "english", maxTokens: 100)
+        XCTAssertGreaterThan(audio.count, 0, "Should produce audio")
+
+        let duration = Double(audio.count) / 24000.0
+        print("Synthesized \(audio.count) samples (\(String(format: "%.2f", duration))s)")
+
+        let transcription = asrModel.transcribe(audio: audio, sampleRate: 24000)
+        print("Input:  \"\(text)\"")
+        print("Output: \"\(transcription)\"")
+
+        // Check that ASR recognizes at least one keyword
+        let keywords = ["hello", "world"]
+        let matched = keywords.filter { transcription.lowercased().contains($0) }
+        print("Matched \(matched.count)/\(keywords.count) keywords: \(matched)")
+
+        XCTAssertGreaterThanOrEqual(matched.count, 1,
+            "ASR should recognize at least 1 keyword from CoreML TTS output. Got: \"\(transcription)\"")
     }
 }
 #endif

@@ -3,28 +3,31 @@ import CoreML
 import Foundation
 import AudioCommon
 
-/// Qwen3-TTS via CoreML — runs on Neural Engine for iOS/macOS.
+/// Qwen3-TTS CoreML inference with 6-model ANE-optimized architecture.
 ///
-/// Three CoreML models:
-/// - Talker: 28-layer transformer, autoregressive codec token generation
-/// - CodePredictor: 5-layer transformer, predicts 15 residual codebooks per step
-/// - MimiDecoder: Convolutional vocoder, codebook indices → 24kHz waveform
+/// Models: TextProjector, CodeEmbedder, MultiCodeEmbedder, CodeDecoder,
+///         MultiCodeDecoder, SpeechDecoder
 public final class Qwen3TTSCoreMLModel {
-
     public static let defaultModelId = "aufklarer/Qwen3-TTS-CoreML"
 
-    private var talker: TalkerGenerator?
-    private var codePredictor: CodePredictorCoreML?
-    private var mimiDecoder: MimiDecoderCoreML?
-    private var embeddings: EmbeddingManager?
+    private var codeDecoder: TalkerGenerator?
+    private var multiCodeDecoder: MultiCodeDecoderCoreML?
+    private var speechDecoder: SpeechDecoderCoreML?
+    private var textProjector: TextProjectorModel?
+    private var codeEmbedder: CodeEmbedderModel?
+    private var multiCodeEmbedder: MultiCodeEmbedderModel?
     private var tokenizer: Qwen3Tokenizer?
+
+    // Pre-computed special embeddings [1, 1024, 1, 1]
+    private var ttsPadEmbed: MLMultiArray?
+    private var ttsBosEmbed: MLMultiArray?
+    private var ttsEosEmbed: MLMultiArray?
+    public var speakerEmbedding: MLMultiArray?
 
     private let hiddenSize = 1024
     private let codecVocabSize = 3072
     private let codecEos = 2150
-    private let codecPad = 2148
 
-    /// Load pretrained model from HuggingFace.
     public static func fromPretrained(
         modelId: String = defaultModelId,
         localPath: String? = nil,
@@ -38,47 +41,68 @@ public final class Qwen3TTSCoreMLModel {
             cacheDir = try HuggingFaceDownloader.getCacheDirectory(for: modelId)
             progressHandler?(0.0, "Downloading model...")
             try await HuggingFaceDownloader.downloadWeights(
-                modelId: modelId,
-                to: cacheDir,
+                modelId: modelId, to: cacheDir,
                 additionalFiles: [
-                    "Talker.mlmodelc/**",
-                    "CodePredictor.mlmodelc/**",
-                    "MimiDecoder.mlmodelc/**",
-                    "embeddings.safetensors",
-                    "config.json",
-                    "vocab.json",
-                    "merges.txt",
+                    "TextProjector.mlmodelc/**", "CodeEmbedder.mlmodelc/**",
+                    "MultiCodeEmbedder.mlmodelc/**", "CodeDecoder.mlmodelc/**",
+                    "MultiCodeDecoder.mlmodelc/**", "SpeechDecoder.mlmodelc/**",
+                    "speaker_embedding.npy", "tts_pad_embed.npy",
+                    "tts_bos_embed.npy", "tts_eos_embed.npy",
+                    "config.json", "vocab.json", "merges.txt",
                 ]
-            ) { progress in
-                progressHandler?(progress * 0.7, "Downloading model...")
-            }
+            ) { progress in progressHandler?(progress * 0.7, "Downloading model...") }
         }
 
         let config = MLModelConfiguration()
         config.computeUnits = computeUnits
 
-        progressHandler?(0.7, "Loading Talker...")
-        let talkerURL = cacheDir.appendingPathComponent("Talker.mlmodelc", isDirectory: true)
-        let talkerMLModel = try MLModel(contentsOf: talkerURL, configuration: config)
+        // MCD needs FP32 (large RMSNorm weights cause NaN in FP16)
+        let mcdConfig = MLModelConfiguration()
+        mcdConfig.computeUnits = .cpuAndNeuralEngine
 
-        progressHandler?(0.8, "Loading CodePredictor...")
-        let cpURL = cacheDir.appendingPathComponent("CodePredictor.mlmodelc", isDirectory: true)
-        // CP uses cpuAndNeuralEngine to match Talker, or cpuOnly for debugging NaN
-        let cpConfig = MLModelConfiguration()
-        cpConfig.computeUnits = .cpuAndNeuralEngine
-        let cpModel = try MLModel(contentsOf: cpURL, configuration: cpConfig)
+        let model = Qwen3TTSCoreMLModel()
 
-        progressHandler?(0.85, "Loading MimiDecoder...")
-        let decoderURL = cacheDir.appendingPathComponent("MimiDecoder.mlmodelc", isDirectory: true)
-        // MimiDecoder uses cpuAndNeuralEngine to avoid MPS graph compiler crash
-        // on GreaterThanOp constant folding (Apple bug in MetalPerformanceShadersGraph)
-        let decoderConfig = MLModelConfiguration()
-        decoderConfig.computeUnits = .cpuAndNeuralEngine
-        let decoderModel = try MLModel(contentsOf: decoderURL, configuration: decoderConfig)
+        progressHandler?(0.7, "Loading models...")
+
+        // Load 6 models
+        func loadML(_ name: String, _ cfg: MLModelConfiguration = config) throws -> MLModel {
+            let url = cacheDir.appendingPathComponent("\(name).mlmodelc", isDirectory: true)
+            return try MLModel(contentsOf: url, configuration: cfg)
+        }
+
+        model.textProjector = TextProjectorModel(model: try loadML("TextProjector"))
+        model.codeEmbedder = CodeEmbedderModel(model: try loadML("CodeEmbedder"))
+        model.multiCodeEmbedder = MultiCodeEmbedderModel(model: try loadML("MultiCodeEmbedder"))
+        model.codeDecoder = TalkerGenerator(model: try loadML("CodeDecoder"))
+        model.multiCodeDecoder = MultiCodeDecoderCoreML(model: try loadML("MultiCodeDecoder", mcdConfig))
+        model.speechDecoder = SpeechDecoderCoreML(model: try loadML("SpeechDecoder"))
 
         progressHandler?(0.9, "Loading embeddings...")
-        let embURL = cacheDir.appendingPathComponent("embeddings.safetensors")
-        let embeddings = try EmbeddingManager(embeddingsURL: embURL)
+
+        // Load special embeddings from .npy or compute from TextProjector
+        func loadNpy(_ name: String) -> MLMultiArray? {
+            let url = cacheDir.appendingPathComponent("\(name).npy")
+            guard let data = try? Data(contentsOf: url), data.count > 10 else { return nil }
+            var headerEnd = 10
+            for i in 8..<min(256, data.count) { if data[i] == 0x0A { headerEnd = i + 1; break } }
+            let floatData = data.subdata(in: headerEnd..<data.count)
+            let count = floatData.count / 4
+            let result = try! MLMultiArray(shape: [1, NSNumber(value: count), 1, 1], dataType: .float16)
+            let dst = result.dataPointer.assumingMemoryBound(to: Float16.self)
+            floatData.withUnsafeBytes { raw in
+                let src = raw.bindMemory(to: Float.self)
+                for i in 0..<count { dst[i] = Float16(src[i]) }
+            }
+            return result
+        }
+
+        if let pad = loadNpy("tts_pad_embed") { model.ttsPadEmbed = pad }
+        else { model.ttsPadEmbed = ensureNCHW(try model.textProjector!.embed(151671), channels: 1024) }
+        if let bos = loadNpy("tts_bos_embed") { model.ttsBosEmbed = bos }
+        else { model.ttsBosEmbed = ensureNCHW(try model.textProjector!.embed(151672), channels: 1024) }
+        if let eos = loadNpy("tts_eos_embed") { model.ttsEosEmbed = eos }
+        else { model.ttsEosEmbed = ensureNCHW(try model.textProjector!.embed(151673), channels: 1024) }
+        model.speakerEmbedding = loadNpy("speaker_embedding")
 
         // Load tokenizer
         let tokenizer = Qwen3Tokenizer()
@@ -86,176 +110,134 @@ public final class Qwen3TTSCoreMLModel {
         if FileManager.default.fileExists(atPath: vocabURL.path) {
             try tokenizer.load(from: vocabURL)
         }
-
-        let model = Qwen3TTSCoreMLModel()
-        model.talker = TalkerGenerator(model: talkerMLModel)
-        let cp = CodePredictorCoreML(model: cpModel)
-        cp.loadWeights(lmHeads: embeddings.cpLMHeadWeights,
-                        codecEmbeddings: embeddings.cpCodecEmbeddings)
-        model.codePredictor = cp
-        model.mimiDecoder = MimiDecoderCoreML(model: decoderModel)
-        model.embeddings = embeddings
         model.tokenizer = tokenizer
 
         progressHandler?(1.0, "Ready")
         return model
     }
 
-    /// Synthesize speech from text.
-    ///
-    /// - Parameters:
-    ///   - text: Text to synthesize
-    ///   - language: Language name (e.g., "english", "chinese")
-    ///   - temperature: Sampling temperature (0 = greedy)
-    ///   - topK: Top-k filtering
-    ///   - maxTokens: Maximum codec tokens to generate
-    /// - Returns: Audio samples at 24kHz, mono Float32
+    // MARK: - Synthesis
+
     public func synthesize(
         text: String,
         language: String = "english",
-        temperature: Float = 0.6,
+        temperature: Float = 0.9,
         topK: Int = 50,
-        maxTokens: Int = 500,
-        eosLogitBias: Float = 0.0,
-        repetitionPenalty: Float = 1.3
+        maxTokens: Int = 125,
+        repetitionPenalty: Float = 1.05
     ) throws -> [Float] {
-        guard let talker, let codePredictor, let mimiDecoder,
-              let embeddings, let tokenizer else {
+        guard let codeDecoder, let multiCodeDecoder, let speechDecoder,
+              let textProjector, let codeEmbedder, let multiCodeEmbedder,
+              let tokenizer, let ttsPadEmbed, let ttsBosEmbed, let ttsEosEmbed else {
             throw TTSCoreMLError.modelNotLoaded
         }
 
-        // Build prompt embeddings
-        let (prefillEmbeds, trailingTextEmbeds, ttsPadEmbed, _) = PromptBuilder.build(
-            text: text, language: language, tokenizer: tokenizer, embeddings: embeddings)
+        // Build non-streaming prefill (all text in prefill)
+        let prefillEmbeds = try PromptBuilder.build(
+            text: text, language: language, tokenizer: tokenizer,
+            textProjector: textProjector, codeEmbedder: codeEmbedder,
+            ttsPadEmbed: ttsPadEmbed, ttsBosEmbed: ttsBosEmbed,
+            ttsEosEmbed: ttsEosEmbed, speakerEmbedding: speakerEmbedding)
 
-        // Reset KV cache
-        talker.resetCache()
+        // Reset CodeDecoder KV cache
+        codeDecoder.resetCache()
 
-        // Prefill: run all prompt tokens through the Talker sequentially
-        let prefillLen = prefillEmbeds.shape[1].intValue
-        var prefillSequence = [[Float16]]()
-        let prefillPtr = prefillEmbeds.dataPointer.assumingMemoryBound(to: Float16.self)
-        for t in 0..<prefillLen {
-            prefillSequence.append(Array(UnsafeBufferPointer(
-                start: prefillPtr.advanced(by: t * hiddenSize), count: hiddenSize)))
+        // Prefill: run all positions through CodeDecoder
+        var lastLogits = [Float]()
+        var lastHidden = try MLMultiArray(shape: [1, 1024, 1, 1], dataType: .float16)
+        for embed in prefillEmbeds {
+            (lastLogits, _) = try codeDecoder.forward(embedArray: embed)
         }
-        let (prefillLogits, prefillHidden) = try talker.prefill(embeds: prefillSequence)
+        lastHidden = codeDecoder.lastHiddenState!
 
-        // Sample first codec token
+        // Sample first CB0 (suppress EOS for min_new_tokens=2)
+        lastLogits[codecEos] = -1e9  // suppress EOS
         var nextToken = TTSSampler.sample(
-            logits: prefillLogits, temperature: temperature, topK: topK,
+            logits: lastLogits, temperature: temperature, topK: topK,
             suppressRange: (2048, 3072), eosTokenId: codecEos)
 
-        // Initialize codebook accumulator: [16][T]
         var allCodebooks = (0..<16).map { _ in [Int32]() }
         allCodebooks[0].append(nextToken)
+        var generatedCB0 = [nextToken]
 
-        // Code Predictor for first timestep
-        let firstHiddenArray = makeFloat16Array(prefillHidden)
-        let firstCodeEmbed = makeFloat16Array(embeddings.codecEmbed(Int(nextToken)))
-        let cpTokens = try codePredictor.predict(
-            hiddenState: firstHiddenArray, firstCodeEmbed: firstCodeEmbed,
-            temperature: temperature, topK: topK,
-            repetitionPenalty: repetitionPenalty)
+        // MultiCodeDecoder: predict CB1-15 for first frame
+        var cpTokens = try multiCodeDecoder.predict(
+            hiddenState: lastHidden, cb0Token: nextToken,
+            codeEmbedder: codeEmbedder, multiCodeEmbedder: multiCodeEmbedder,
+            temperature: temperature, topK: topK)
         for (i, token) in cpTokens.enumerated() {
             allCodebooks[i + 1].append(token)
         }
 
         // Autoregressive decode loop
-        var trailingIdx = 0
-        var prevCPTokens = cpTokens
-
         for step in 1..<maxTokens {
-            // Text embedding for this step
-            let textEmbed: [Float16]
-            if trailingIdx < trailingTextEmbeds.count {
-                textEmbed = trailingTextEmbeds[trailingIdx]
-                trailingIdx += 1
-            } else {
-                textEmbed = ttsPadEmbed
+            // Step input = sum(all 16 codec embeddings) + tts_pad
+            var codecSum = ensureNCHW(try codeEmbedder.embed(Int(nextToken)), channels: hiddenSize)
+            for (cbIdx, token) in cpTokens.enumerated() {
+                let mceEmbed = ensureNCHW(
+                    try multiCodeEmbedder.embed(codebookIdx: cbIdx, tokenId: Int(token)),
+                    channels: hiddenSize)
+                codecSum = addMLMultiArrays(codecSum, mceEmbed)
             }
+            let stepInput = addMLMultiArrays(codecSum, ttsPadEmbed)
 
-            // Codec embedding: first codebook + sum of 15 CP group embeddings
-            let codecEmbed = embeddings.codecEmbed(Int(nextToken))
-            let cpGroupEmbed = embeddings.cpGroupEmbedSum(prevCPTokens)
+            // CodeDecoder forward
+            (lastLogits, _) = try codeDecoder.forward(embedArray: stepInput)
+            lastHidden = codeDecoder.lastHiddenState!
 
-            // Combined step embedding: text + codec + cp_group (element-wise sum)
-            var stepEmbed = [Float16](repeating: 0, count: hiddenSize)
-            for i in 0..<hiddenSize {
-                stepEmbed[i] = Float16(Float(textEmbed[i]) + Float(codecEmbed[i]) + Float(cpGroupEmbed[i]))
+            // Sample CB0
+            let eosLogit = lastLogits[codecEos]
+            // Suppress control tokens, preserve EOS
+            for i in 2048..<codecVocabSize { if i != codecEos { lastLogits[i] = -1e9 } }
+            if step < 2 { lastLogits[codecEos] = -1e9 }  // min_new_tokens=2
+            else { lastLogits[codecEos] = eosLogit }
+
+            // Repetition penalty
+            for t in Set(generatedCB0) {
+                let idx = Int(t)
+                if lastLogits[idx] > 0 { lastLogits[idx] /= repetitionPenalty }
+                else { lastLogits[idx] *= repetitionPenalty }
             }
-
-            // Run one decode step
-            let (stepLogits, stepHidden) = try talker.forward(embed: stepEmbed)
-
-            // EOS bias: ramp after text tokens exhausted
-            let textDone = trailingIdx >= trailingTextEmbeds.count
-            let stepsAfterText = textDone ? max(0, step - trailingTextEmbeds.count) : 0
-            let minTokens = max(trailingTextEmbeds.count + 3, 8)
-            let biasActive = textDone && step >= minTokens
-            let dynamicBias = eosLogitBias + (biasActive ? 20.0 + Float(stepsAfterText) * 3.0 : 0.0)
 
             nextToken = TTSSampler.sample(
-                logits: stepLogits, temperature: temperature, topK: topK,
-                repetitionPenalty: repetitionPenalty, generatedTokens: allCodebooks[0],
-                suppressRange: (2048, 3072), eosTokenId: codecEos, eosLogitBias: dynamicBias)
-            if nextToken == Int32(codecEos) { break }
+                logits: lastLogits, temperature: temperature, topK: topK)
+            generatedCB0.append(nextToken)
 
+            if nextToken == Int32(codecEos) { break }
             allCodebooks[0].append(nextToken)
 
-            // Code Predictor
-            let hiddenArray = makeFloat16Array(stepHidden)
-            let codeEmbedArray = makeFloat16Array(embeddings.codecEmbed(Int(nextToken)))
-            prevCPTokens = try codePredictor.predict(
-                hiddenState: hiddenArray, firstCodeEmbed: codeEmbedArray,
-                temperature: temperature, topK: topK,
-                repetitionPenalty: repetitionPenalty)
-            for (i, token) in prevCPTokens.enumerated() {
+            // MultiCodeDecoder: predict CB1-15
+            cpTokens = try multiCodeDecoder.predict(
+                hiddenState: lastHidden, cb0Token: nextToken,
+                codeEmbedder: codeEmbedder, multiCodeEmbedder: multiCodeEmbedder,
+                temperature: temperature, topK: topK)
+            for (i, token) in cpTokens.enumerated() {
                 allCodebooks[i + 1].append(token)
             }
         }
 
-        // Decode all codebooks to audio
-        guard !allCodebooks[0].isEmpty else {
-            return []
-        }
+        // SpeechDecoder: all codes → audio
+        guard !allCodebooks[0].isEmpty else { return [] }
+        var audio = try speechDecoder.decode(codes: allCodebooks)
 
-        var audio = try mimiDecoder.decode(codes: allCodebooks)
-
-        // Normalize amplitude: CoreML FP16 decoder produces ~2.5x lower
-        // amplitude than MLX. Scale to match expected output level.
+        // Normalize amplitude
         let peak = audio.map { abs($0) }.max() ?? 0
         if peak > 0.001 {
-            let targetPeak: Float = 0.9
-            let gain = min(targetPeak / peak, 10.0)  // cap at 10x to avoid amplifying noise
+            let gain = min(0.9 / peak, 10.0)
             for i in 0..<audio.count { audio[i] *= gain }
         }
 
         return audio
     }
 
-    /// Unload all models to free memory.
     public func unload() {
-        talker = nil
-        codePredictor = nil
-        mimiDecoder = nil
-        embeddings = nil
+        codeDecoder = nil; multiCodeDecoder = nil; speechDecoder = nil
+        textProjector = nil; codeEmbedder = nil; multiCodeEmbedder = nil
         tokenizer = nil
-    }
-
-    // MARK: - Helpers
-
-    /// Convert [Float16] array to MLMultiArray [1, 1, hiddenSize] for Code Predictor input.
-    private func makeFloat16Array(_ embed: [Float16]) -> MLMultiArray {
-        let array = try! MLMultiArray(shape: [1, 1, NSNumber(value: hiddenSize)], dataType: .float16)
-        let ptr = array.dataPointer.assumingMemoryBound(to: Float16.self)
-        for i in 0..<hiddenSize { ptr[i] = embed[i] }
-        return array
     }
 
     public enum TTSCoreMLError: Error {
         case modelNotLoaded
-        case generationFailed(String)
     }
 }
 #endif

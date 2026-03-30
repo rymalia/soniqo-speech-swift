@@ -361,7 +361,7 @@ public struct SpeakCommand: ParsableCommand {
             let audio = try model.synthesize(
                 text: text, language: lang,
                 temperature: self.temperature, topK: Int(self.topK),
-                maxTokens: 500)
+                maxTokens: self.maxTokens)
             let elapsed = CFAbsoluteTimeGetCurrent() - start
             let duration = Double(audio.count) / 24000.0
 
