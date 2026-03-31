@@ -58,38 +58,59 @@ final class MultiCodeEmbedderModel {
 /// Add two MLMultiArrays element-wise. Accumulates in FP32 internally, stores as FP16.
 /// Python coremltools returns FP32 arrays, so additions happen in FP32 naturally.
 /// Swift CoreML returns FP16, so we must explicitly upcast for correct accumulation.
-/// Add two MLMultiArrays element-wise. Accumulates in FP32, output matches input dtype.
-func addMLMultiArrays(_ a: MLMultiArray, _ b: MLMultiArray) -> MLMultiArray {
-    let channels = a.dataType == .float16
-        ? a.shape.map { $0.intValue }.reduce(1, *)
-        : a.shape.map { $0.intValue }.reduce(1, *)
-    let count = a.shape.map { $0.intValue }.reduce(1, *)
-    // Keep FP32 if either input is FP32
-    let outType: MLMultiArrayDataType = (a.dataType == .float32 || b.dataType == .float32) ? .float32 : .float16
-    let result = try! MLMultiArray(shape: [1, NSNumber(value: count), 1, 1], dataType: outType)
-
-    func readFloat(_ arr: MLMultiArray, _ idx: Int) -> Float {
-        arr.dataType == .float16
-            ? Float(arr.dataPointer.assumingMemoryBound(to: Float16.self)[idx])
-            : arr.dataPointer.assumingMemoryBound(to: Float.self)[idx]
-    }
-
-    if outType == .float32 {
-        let rp = result.dataPointer.assumingMemoryBound(to: Float.self)
-        for i in 0..<count { rp[i] = readFloat(a, i) + readFloat(b, i) }
+/// Read a Float value from an MLMultiArray at logical index, respecting strides.
+func readMLFloat(_ arr: MLMultiArray, _ logicalIdx: Int) -> Float {
+    // For [1, C, 1, 1] or [C, 1, 1] — the first dimension is the channel index
+    let stride = arr.strides[0].intValue
+    let physIdx = logicalIdx * stride
+    if arr.dataType == .float16 {
+        return Float(arr.dataPointer.assumingMemoryBound(to: Float16.self)[physIdx])
     } else {
-        let rp = result.dataPointer.assumingMemoryBound(to: Float16.self)
-        for i in 0..<count { rp[i] = Float16(readFloat(a, i) + readFloat(b, i)) }
+        return arr.dataPointer.assumingMemoryBound(to: Float.self)[physIdx]
+    }
+}
+
+/// Add two MLMultiArrays element-wise. Both should be [1, C, 1, 1] contiguous FP16.
+/// Use ensureNCHW() on inputs first to make them contiguous.
+func addMLMultiArrays(_ a: MLMultiArray, _ b: MLMultiArray) -> MLMultiArray {
+    let channels = a.shape[1].intValue  // [1, C, 1, 1]
+    let result = try! MLMultiArray(shape: [1, NSNumber(value: channels), 1, 1], dataType: .float16)
+    let rp = result.dataPointer.assumingMemoryBound(to: Float16.self)
+    let ap = a.dataPointer.assumingMemoryBound(to: Float16.self)
+    let bp = b.dataPointer.assumingMemoryBound(to: Float16.self)
+
+    // After ensureNCHW, both should be contiguous [1, C, 1, 1] with stride [C, 1, 1, 1]
+    for i in 0..<channels {
+        rp[i] = Float16(Float(ap[i]) + Float(bp[i]))
     }
     return result
 }
 
-/// Ensure MLMultiArray has rank 4 [1, C, 1, 1] (CoreML sometimes drops batch dim).
+/// Ensure MLMultiArray is contiguous rank 4 [1, C, 1, 1].
+/// CoreML may use non-contiguous strides (e.g., stride=32 for SIMD alignment).
+/// This copies data respecting strides into a contiguous buffer.
 func ensureNCHW(_ array: MLMultiArray, channels: Int) -> MLMultiArray {
-    if array.shape.count == 4 { return array }
-    let result = try! MLMultiArray(shape: [1, NSNumber(value: channels), 1, 1], dataType: array.dataType)
-    let bytes = channels * (array.dataType == .float16 ? 2 : 4)
-    memcpy(result.dataPointer, array.dataPointer, bytes)
+    let result = try! MLMultiArray(shape: [1, NSNumber(value: channels), 1, 1], dataType: .float16)
+    let dst = result.dataPointer.assumingMemoryBound(to: Float16.self)
+
+    // Check if strides indicate non-contiguous layout
+    let strides = array.strides.map { $0.intValue }
+    let isContiguous = strides.last == 1 && (strides.count < 2 || strides[strides.count - 2] <= 1
+        || (strides.count >= 1 && strides[0] == 1))
+
+    // CoreML outputs may have non-unit strides (SIMD alignment).
+    // Use MLMultiArray subscript for correct strided access.
+    let shape = array.shape.map { $0.intValue }
+    let ndim = shape.count
+    for i in 0..<channels {
+        var idx = [NSNumber](repeating: 0, count: ndim)
+        // Channel is always the first non-batch dimension
+        if ndim == 3 { idx[0] = i as NSNumber }     // [C, 1, 1]
+        else if ndim == 4 { idx[1] = i as NSNumber } // [1, C, 1, 1]
+        else { idx[0] = i as NSNumber }
+        let val = array[idx]
+        dst[i] = Float16(val.floatValue)
+    }
     return result
 }
 #endif

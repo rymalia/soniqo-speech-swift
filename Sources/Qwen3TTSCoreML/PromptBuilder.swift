@@ -53,9 +53,22 @@ struct PromptBuilder {
         for tid in roleIds {
             let e = ensureNCHW(try textProjector.embed(tid), channels: 1024)
             if tid == roleIds[0] {
-                let p = e.dataType == .float16
-                    ? (0..<3).map { Float(e.dataPointer.assumingMemoryBound(to: Float16.self)[$0]) }
-                    : (0..<3).map { e.dataPointer.assumingMemoryBound(to: Float.self)[$0] }
+                let p: [Float]
+                if e.dataType == .float16 {
+                    p = (0..<5).map { Float(e.dataPointer.assumingMemoryBound(to: Float16.self)[$0]) }
+                } else {
+                    p = (0..<5).map { e.dataPointer.assumingMemoryBound(to: Float.self)[$0] }
+                }
+                // Check raw model output before ensureNCHW
+                let raw = try textProjector.embed(tid)
+                let rawShape = raw.shape.map { $0.intValue }
+                let rawStrides = raw.strides.map { $0.intValue }
+                let rawCount = rawShape.reduce(1, *)
+                var rawVals = [Float]()
+                if raw.dataType == .float16 {
+                    let rp = raw.dataPointer.assumingMemoryBound(to: Float16.self)
+                    for i in 0..<min(5, rawCount) { rawVals.append(Float(rp[i])) }
+                }
             }
             prefill.append(e)
         }

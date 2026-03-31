@@ -54,7 +54,7 @@ public final class Qwen3TTSCoreMLModel {
         }
 
         let config = MLModelConfiguration()
-        config.computeUnits = computeUnits
+        config.computeUnits = .cpuAndGPU  // Avoid ANE flush-to-zero behavior
 
         // MCD on CPU+NE (avoid GPU-only which can miscompile some ops)
         let mcdConfig = MLModelConfiguration()

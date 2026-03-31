@@ -95,17 +95,16 @@ final class MultiCodeDecoderCoreML {
         )
     }
 
-    /// Extract logits for a specific group from [1, 15, 2048].
+    /// Extract logits for a specific group from [1, 15, 2048] (stride-safe).
     private func extractGroupLogits(_ array: MLMultiArray, group: Int) -> [Float] {
         let vocabSize = 2048
         var result = [Float](repeating: 0, count: vocabSize)
-        let offset = group * vocabSize
-        if array.dataType == .float16 {
-            let ptr = array.dataPointer.assumingMemoryBound(to: Float16.self)
-            for i in 0..<vocabSize { result[i] = Float(ptr[offset + i]) }
-        } else {
-            let ptr = array.dataPointer.assumingMemoryBound(to: Float.self)
-            for i in 0..<vocabSize { result[i] = ptr[offset + i] }
+        let ndim = array.shape.count
+        for i in 0..<vocabSize {
+            var idx = [NSNumber](repeating: 0, count: ndim)
+            if ndim == 3 { idx[1] = group as NSNumber; idx[2] = i as NSNumber }
+            else if ndim == 2 { idx[0] = group as NSNumber; idx[1] = i as NSNumber }
+            result[i] = array[idx].floatValue
         }
         return result
     }

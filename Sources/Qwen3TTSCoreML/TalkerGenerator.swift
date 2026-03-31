@@ -118,8 +118,8 @@ final class TalkerGenerator {
 
         currentPos += 1
 
-        // Save hidden state for MultiCodeDecoder
-        lastHiddenState = hiddenArray
+        // Save hidden state for MultiCodeDecoder (contiguous copy)
+        lastHiddenState = ensureNCHW(hiddenArray, channels: hiddenSize)
 
         // Extract logits — shape is [1, 1, 3072]
         let logits = extractLogits(logitsArray, vocabSize: 3072)
@@ -182,37 +182,41 @@ final class TalkerGenerator {
         }
     }
 
-    /// Extract Float32 logits from [1, 1, vocabSize] array.
+    /// Extract Float32 logits from [1, 1, vocabSize] array (stride-safe).
     private func extractLogits(_ array: MLMultiArray, vocabSize: Int) -> [Float] {
         var result = [Float](repeating: 0, count: vocabSize)
-        if array.dataType == .float16 {
-            let ptr = array.dataPointer.assumingMemoryBound(to: Float16.self)
-            for i in 0..<vocabSize { result[i] = Float(ptr[i]) }
-        } else {
-            let ptr = array.dataPointer.assumingMemoryBound(to: Float.self)
-            for i in 0..<vocabSize { result[i] = ptr[i] }
+        let ndim = array.shape.count
+        for i in 0..<vocabSize {
+            var idx = [NSNumber](repeating: 0, count: ndim)
+            idx[ndim - 1] = i as NSNumber  // last dim is vocab
+            result[i] = array[idx].floatValue
         }
         return result
     }
 
-    /// Extract Float32 values from NCHW array [1, channels, 1, 1].
+    /// Extract Float32 values from NCHW array [1, channels, 1, 1] (stride-safe).
     private func extractNCHW(_ array: MLMultiArray, channels: Int) -> [Float] {
         var result = [Float](repeating: 0, count: channels)
-        if array.dataType == .float16 {
-            let ptr = array.dataPointer.assumingMemoryBound(to: Float16.self)
-            for i in 0..<channels { result[i] = Float(ptr[i]) }
-        } else {
-            let ptr = array.dataPointer.assumingMemoryBound(to: Float.self)
-            for i in 0..<channels { result[i] = ptr[i] }
+        let ndim = array.shape.count
+        for i in 0..<channels {
+            var idx = [NSNumber](repeating: 0, count: ndim)
+            if ndim >= 4 { idx[1] = i as NSNumber }  // [1, C, 1, 1]
+            else { idx[0] = i as NSNumber }            // [C, 1, 1]
+            result[i] = array[idx].floatValue
         }
         return result
     }
 
-    /// Extract Float16 values from NCHW array [1, channels, 1, 1].
+    /// Extract Float16 values from NCHW array [1, channels, 1, 1] (stride-safe).
     private func extractNCHWFloat16(_ array: MLMultiArray, channels: Int) -> [Float16] {
         var result = [Float16](repeating: 0, count: channels)
-        let ptr = array.dataPointer.assumingMemoryBound(to: Float16.self)
-        for i in 0..<channels { result[i] = ptr[i] }
+        let ndim = array.shape.count
+        for i in 0..<channels {
+            var idx = [NSNumber](repeating: 0, count: ndim)
+            if ndim >= 4 { idx[1] = i as NSNumber }
+            else { idx[0] = i as NSNumber }
+            result[i] = Float16(array[idx].floatValue)
+        }
         return result
     }
 
