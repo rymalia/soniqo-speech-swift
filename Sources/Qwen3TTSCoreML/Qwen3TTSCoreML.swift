@@ -58,9 +58,9 @@ public final class Qwen3TTSCoreMLModel {
         let cpuConfig = MLModelConfiguration()
         cpuConfig.computeUnits = .cpuOnly
 
-        // CodeDecoder on CPU+GPU (avoids ANE precision issues that cause quality regression)
+        // With MLState, KV cache stays on ANE — use all compute units
         let defaultConfig = MLModelConfiguration()
-        defaultConfig.computeUnits = .cpuAndGPU
+        defaultConfig.computeUnits = computeUnits
 
         let model = Qwen3TTSCoreMLModel()
 

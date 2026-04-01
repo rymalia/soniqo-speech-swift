@@ -2,66 +2,42 @@
 import CoreML
 import Foundation
 
-/// CoreML-based autoregressive Talker for Qwen3-TTS (Conv2d / NCHW layout).
+/// CoreML CodeDecoder with MLState stateful KV cache.
 ///
-/// Optimized for Apple Neural Engine:
-/// - Conv2d layers (kernel=1) instead of Linear
-/// - NCHW data layout: (batch, channels, 1, 1) per token
-/// - Pre-allocated fixed-size KV cache with scatter-write mask
-/// - Precomputed RoPE cos/sin tables passed as inputs
-/// - Stacked KV cache: all 28 layers concatenated along channel dim
+/// The KV cache persists on ANE between calls via MLState, avoiding
+/// cross-device copies that cause precision drift. Falls back to
+/// stateless I/O for non-stateful models.
 final class TalkerGenerator {
 
     private let model: MLModel
     private let maxSeqLen: Int
     private let hiddenSize: Int
-    private let headDim: Int
-    private let kvDimPerLayer: Int  // numKVHeads * headDim = 1024
-    private let totalKVDim: Int     // kvDimPerLayer * numLayers = 28672
-    private let ropeTheta: Float
+    private let isStateful: Bool
 
-    // Pre-allocated KV cache: [1, totalKVDim, 1, maxSeqLen]
-    private var keyCache: MLMultiArray!
-    private var valueCache: MLMultiArray!
+    private var state: MLState?
     private var currentPos: Int = 0
 
-    // Precomputed RoPE tables
-    private var ropeCosTables: [[Float16]] = []  // [maxSeqLen][headDim]
-    private var ropeSinTables: [[Float16]] = []
+    /// Last hidden state from the most recent forward pass.
+    private(set) var lastHiddenState: MLMultiArray?
 
-    init(model: MLModel, maxSeqLen: Int = 256, hiddenSize: Int = 1024,
-         numLayers: Int = 28, numKVHeads: Int = 8, headDim: Int = 128,
-         ropeTheta: Float = 1_000_000) {
+    init(model: MLModel, maxSeqLen: Int = 256, hiddenSize: Int = 1024) {
         self.model = model
         self.maxSeqLen = maxSeqLen
         self.hiddenSize = hiddenSize
-        self.headDim = headDim
-        self.kvDimPerLayer = numKVHeads * headDim
-        self.totalKVDim = kvDimPerLayer * numLayers
-        self.ropeTheta = ropeTheta
-        precomputeRoPE()
+        self.isStateful = !model.modelDescription.stateDescriptionsByName.isEmpty
     }
 
-    // MARK: - Cache Management
-
     func resetCache() {
-        keyCache = makeZeroArray(shape: [1, totalKVDim, 1, maxSeqLen])
-        valueCache = makeZeroArray(shape: [1, totalKVDim, 1, maxSeqLen])
+        if isStateful {
+            state = model.makeState()
+        }
         currentPos = 0
     }
 
-    /// Last hidden state from the most recent forward pass [1, 1024, 1, 1].
-    private(set) var lastHiddenState: MLMultiArray?
-
-    // MARK: - Forward Pass
-
-    /// Run a single-token decode step with pre-built MLMultiArray [1, 1024, 1, 1].
     func forward(embedArray: MLMultiArray) throws -> (logits: [Float], hidden: [Float16]) {
-        let embed = ensureNCHW(embedArray, channels: hiddenSize)
-        return try forwardInternal(inputEmbeds: embed)
+        return try forwardInternal(inputEmbeds: ensureNCHW(embedArray, channels: hiddenSize))
     }
 
-    /// Run a single-token decode step with [Float16] array.
     func forward(embed: [Float16]) throws -> (logits: [Float], hidden: [Float16]) {
         let inputEmbeds = try MLMultiArray(
             shape: [1, NSNumber(value: hiddenSize), 1, 1], dataType: .float16)
@@ -71,70 +47,63 @@ final class TalkerGenerator {
     }
 
     private func forwardInternal(inputEmbeds: MLMultiArray) throws -> (logits: [Float], hidden: [Float16]) {
-        guard currentPos < maxSeqLen else {
-            throw TalkerError.cacheFull
-        }
+        guard currentPos < maxSeqLen else { throw TalkerError.cacheFull }
 
         let cacheLength = try MLMultiArray(shape: [1], dataType: .int32)
         cacheLength.dataPointer.assumingMemoryBound(to: Int32.self)[0] = Int32(currentPos)
 
-        // Key padding mask: [1, maxSeqLen] — 0 for valid, -inf for masked
         let keyPaddingMask = try MLMultiArray(
             shape: [1, NSNumber(value: maxSeqLen)], dataType: .float16)
         let maskPtr = keyPaddingMask.dataPointer.assumingMemoryBound(to: Float16.self)
-        let maskVal = Float16(-1e4)  // -10000, NOT -inf (matches conversion script)
-        for i in 0..<maxSeqLen {
-            maskPtr[i] = i <= currentPos ? Float16(0) : maskVal
-        }
+        for i in 0..<maxSeqLen { maskPtr[i] = i <= currentPos ? Float16(0) : Float16(-1e4) }
 
-        // KV cache update mask: [1, maxSeqLen] — one-hot at currentPos
         let updateMask = try MLMultiArray(
             shape: [1, NSNumber(value: maxSeqLen)], dataType: .float16)
-        let updatePtr = updateMask.dataPointer.assumingMemoryBound(to: Float16.self)
         memset(updateMask.dataPointer, 0, maxSeqLen * 2)
-        updatePtr[currentPos] = Float16(1.0)
+        updateMask.dataPointer.assumingMemoryBound(to: Float16.self)[currentPos] = Float16(1.0)
 
-        // Build inputs
         let inputs: [String: MLFeatureValue] = [
             "input_embeds": MLFeatureValue(multiArray: inputEmbeds),
             "cache_length": MLFeatureValue(multiArray: cacheLength),
             "key_padding_mask": MLFeatureValue(multiArray: keyPaddingMask),
             "kv_cache_update_mask": MLFeatureValue(multiArray: updateMask),
-            "key_cache": MLFeatureValue(multiArray: keyCache),
-            "value_cache": MLFeatureValue(multiArray: valueCache),
         ]
 
         let provider = try MLDictionaryFeatureProvider(dictionary: inputs)
-        let result = try model.prediction(from: provider)
+        let result: MLFeatureProvider
 
-        // Extract outputs
-        let logitsArray = result.featureValue(for: "logits")!.multiArrayValue!         // [1, 1, 3072]
-        let hiddenArray = result.featureValue(for: "hidden_states")!.multiArrayValue!  // [1, 1024, 1, 1]
-
-        // Update KV cache — model returns full updated cache
-        // Must make contiguous copy if strided (CoreML SIMD alignment)
-        let newKC = result.featureValue(for: "new_key_cache")!.multiArrayValue!
-        let newVC = result.featureValue(for: "new_value_cache")!.multiArrayValue!
-        // Always make contiguous copy — CoreML outputs may have SIMD-aligned strides
-        keyCache = makeContiguousCopy(newKC)
-        valueCache = makeContiguousCopy(newVC)
-        if currentPos == 1 {
+        if isStateful, let mlState = state {
+            result = try model.prediction(from: provider, using: mlState)
+        } else {
+            result = try model.prediction(from: provider)
         }
 
-        currentPos += 1
+        let logitsArray = result.featureValue(for: "logits")!.multiArrayValue!
+        let hiddenArray = result.featureValue(for: "hidden_states")!.multiArrayValue!
 
-        // Save hidden state for MultiCodeDecoder (contiguous copy)
+        currentPos += 1
         lastHiddenState = ensureNCHW(hiddenArray, channels: hiddenSize)
 
-        // Extract logits — shape is [1, 1, 3072]
-        let logits = extractLogits(logitsArray, vocabSize: 3072)
-        let hidden = extractNCHWFloat16(hiddenArray, channels: hiddenSize)
+        // Extract using subscript for stride safety
+        var logits = [Float](repeating: 0, count: 3072)
+        let ndim = logitsArray.shape.count
+        for i in 0..<3072 {
+            var idx = [NSNumber](repeating: 0, count: ndim)
+            idx[ndim - 1] = i as NSNumber
+            logits[i] = logitsArray[idx].floatValue
+        }
+
+        var hidden = [Float16](repeating: 0, count: hiddenSize)
+        let hndim = hiddenArray.shape.count
+        for i in 0..<hiddenSize {
+            var idx = [NSNumber](repeating: 0, count: hndim)
+            if hndim >= 4 { idx[1] = i as NSNumber } else { idx[0] = i as NSNumber }
+            hidden[i] = Float16(hiddenArray[idx].floatValue)
+        }
 
         return (logits, hidden)
     }
 
-    /// Run prefill: process multiple tokens sequentially.
-    /// Returns logits and hidden state from the LAST token only.
     func prefill(embeds: [[Float16]]) throws -> (logits: [Float], hidden: [Float16]) {
         var lastLogits = [Float]()
         var lastHidden = [Float16]()
@@ -142,147 +111,6 @@ final class TalkerGenerator {
             (lastLogits, lastHidden) = try forward(embed: embed)
         }
         return (lastLogits, lastHidden)
-    }
-
-    // MARK: - Helpers
-
-    private func precomputeRoPE() {
-        // Half-split RoPE (MLX traditional=false): stride half (x[:d/2], x[d/2:])
-        let halfDim = headDim / 2
-        for pos in 0..<maxSeqLen {
-            var cosVals = [Float16](repeating: 0, count: headDim)
-            var sinVals = [Float16](repeating: 0, count: headDim)
-            for i in 0..<halfDim {
-                let freq = 1.0 / pow(ropeTheta, Float(2 * i) / Float(headDim))
-                let angle = Float(pos) * freq
-                let c = Float16(cos(angle))
-                let s = Float16(sin(angle))
-                // Half-split: first half gets cos/sin for first half, second half same
-                cosVals[i] = c
-                cosVals[i + halfDim] = c
-                sinVals[i] = s
-                sinVals[i + halfDim] = s
-            }
-            ropeCosTables.append(cosVals)
-            ropeSinTables.append(sinVals)
-        }
-    }
-
-    private func makeRoPEArray(position: Int, isCos: Bool) throws -> MLMultiArray {
-        let array = try MLMultiArray(shape: [1, NSNumber(value: headDim), 1], dataType: .float16)
-        let ptr = array.dataPointer.assumingMemoryBound(to: Float16.self)
-        let table = isCos ? ropeCosTables[position] : ropeSinTables[position]
-        for i in 0..<headDim { ptr[i] = table[i] }
-        return array
-    }
-
-    /// Scatter-write: copy update values into cache at the given position.
-    /// updates: [1, totalKVDim, 1, 1], cache: [1, totalKVDim, 1, maxSeqLen]
-    private func updateCache(updates: MLMultiArray, into cache: inout MLMultiArray, at position: Int) {
-        let srcPtr = updates.dataPointer.assumingMemoryBound(to: Float16.self)
-        let dstPtr = cache.dataPointer.assumingMemoryBound(to: Float16.self)
-        // cache layout: [1, totalKVDim, 1, maxSeqLen] → flat index = ch * maxSeqLen + pos
-        for ch in 0..<totalKVDim {
-            dstPtr[ch * maxSeqLen + position] = srcPtr[ch]
-        }
-    }
-
-    /// Extract Float32 logits from [1, 1, vocabSize] array (stride-safe).
-    private func extractLogits(_ array: MLMultiArray, vocabSize: Int) -> [Float] {
-        var result = [Float](repeating: 0, count: vocabSize)
-        let ndim = array.shape.count
-        for i in 0..<vocabSize {
-            var idx = [NSNumber](repeating: 0, count: ndim)
-            idx[ndim - 1] = i as NSNumber  // last dim is vocab
-            result[i] = array[idx].floatValue
-        }
-        return result
-    }
-
-    /// Extract Float32 values from NCHW array [1, channels, 1, 1] (stride-safe).
-    private func extractNCHW(_ array: MLMultiArray, channels: Int) -> [Float] {
-        var result = [Float](repeating: 0, count: channels)
-        let ndim = array.shape.count
-        for i in 0..<channels {
-            var idx = [NSNumber](repeating: 0, count: ndim)
-            if ndim >= 4 { idx[1] = i as NSNumber }  // [1, C, 1, 1]
-            else { idx[0] = i as NSNumber }            // [C, 1, 1]
-            result[i] = array[idx].floatValue
-        }
-        return result
-    }
-
-    /// Extract Float16 values from NCHW array [1, channels, 1, 1] (stride-safe).
-    private func extractNCHWFloat16(_ array: MLMultiArray, channels: Int) -> [Float16] {
-        var result = [Float16](repeating: 0, count: channels)
-        let ndim = array.shape.count
-        for i in 0..<channels {
-            var idx = [NSNumber](repeating: 0, count: ndim)
-            if ndim >= 4 { idx[1] = i as NSNumber }
-            else { idx[0] = i as NSNumber }
-            result[i] = Float16(array[idx].floatValue)
-        }
-        return result
-    }
-
-    /// Make a contiguous copy of a potentially strided MLMultiArray using subscript.
-    private func makeContiguousCopy(_ src: MLMultiArray) -> MLMultiArray {
-        let shape = src.shape
-        let dst = try! MLMultiArray(shape: shape, dataType: src.dataType)
-        let total = shape.map { $0.intValue }.reduce(1, *)
-        // For large arrays, use memcpy if already contiguous
-        let firstStride = src.strides[0].intValue
-        let expectedStride = shape.dropFirst().map { $0.intValue }.reduce(1, *)
-        if firstStride == expectedStride {
-            // Contiguous — fast copy
-            let bytes = total * (src.dataType == .float16 ? 2 : 4)
-            memcpy(dst.dataPointer, src.dataPointer, bytes)
-        } else {
-            // Strided — element-wise copy (slow but correct)
-            // For KV cache [1, 28672, 1, 256], iterate all elements
-            let srcPtr = src.dataPointer
-            let dstPtr = dst.dataPointer
-            let elemSize = src.dataType == .float16 ? 2 : 4
-            let strides = src.strides.map { $0.intValue }
-            let dims = shape.map { $0.intValue }
-
-            // Fast path for 4D [1, C, 1, S] with stride on dim 1
-            if dims.count == 4 && dims[0] == 1 && dims[2] == 1 {
-                let C = dims[1], S = dims[3]
-                let stride1 = strides[1]  // stride for channel dim
-                let stride3 = strides[3]  // stride for seq dim
-                if src.dataType == .float16 {
-                    let sp = srcPtr.assumingMemoryBound(to: Float16.self)
-                    let dp = dstPtr.assumingMemoryBound(to: Float16.self)
-                    for c in 0..<C {
-                        for s in 0..<S {
-                            dp[c * S + s] = sp[c * stride1 + s * stride3]
-                        }
-                    }
-                } else {
-                    let sp = srcPtr.assumingMemoryBound(to: Float.self)
-                    let dp = dstPtr.assumingMemoryBound(to: Float.self)
-                    for c in 0..<C {
-                        for s in 0..<S {
-                            dp[c * S + s] = sp[c * stride1 + s * stride3]
-                        }
-                    }
-                }
-            } else {
-                // General fallback — copy via memcpy (assumes contiguous for now)
-                let bytes = total * elemSize
-                memcpy(dstPtr, srcPtr, bytes)
-            }
-        }
-        return dst
-    }
-
-    private func makeZeroArray(shape: [Int]) -> MLMultiArray {
-        let nsShape = shape.map { NSNumber(value: $0) }
-        let array = try! MLMultiArray(shape: nsShape, dataType: .float16)
-        let count = shape.reduce(1, *)
-        memset(array.dataPointer, 0, count * 2)
-        return array
     }
 
     enum TalkerError: Error {

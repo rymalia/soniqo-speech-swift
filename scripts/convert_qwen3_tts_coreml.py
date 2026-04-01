@@ -261,9 +261,9 @@ class CodeDecoderWrapper(nn.Module):
         nkc = key_cache * (1.0 - update_mask) + new_kv_k * update_mask
         nvc = value_cache * (1.0 - update_mask) + new_kv_v * update_mask
         if self.stateful:
-            # In-place update for MLState
-            self.key_cache.copy_(nkc)
-            self.value_cache.copy_(nvc)
+            # In-place update pattern that coremltools can trace for MLState
+            self.key_cache.mul_(0.0).add_(nkc)
+            self.value_cache.mul_(0.0).add_(nvc)
             return logits, hidden_out
         return logits, hidden_out, nkc, nvc
 
@@ -376,7 +376,7 @@ def main():
     parser.add_argument("--quantize-w8", action="store_true", help="W8A16 k-means palettization")
     parser.add_argument("--tokenizer-id", default="Qwen/Qwen3-TTS-Tokenizer-12Hz",
                         help="HuggingFace tokenizer model ID for SpeechDecoder")
-    parser.add_argument("--stateful", action="store_true", help="Use MLState for KV cache (ANE-optimal)")
+    parser.add_argument("--no-stateful", action="store_true", help="Disable MLState (use explicit KV cache I/O)")
     parser.add_argument("--only", type=str, default=None, help="Comma-separated: TextProjector,CodeEmbedder,MultiCodeEmbedder,CodeDecoder,MultiCodeDecoder,SpeechDecoder")
     args = parser.parse_args()
 
@@ -454,7 +454,7 @@ def main():
         print("\n── CodeDecoder ──")
         kv_dim = talker.config.num_key_value_heads * talker.config.head_dim
         total_kv = kv_dim * talker.config.num_hidden_layers
-        use_stateful = args.stateful if hasattr(args, 'stateful') else False
+        use_stateful = not (args.no_stateful if hasattr(args, 'no_stateful') else False)
         w = CodeDecoderWrapper(talker, stateful=use_stateful)
         w.eval()
         if use_stateful:
