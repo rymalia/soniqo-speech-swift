@@ -53,19 +53,21 @@ public final class Qwen3TTSCoreMLModel {
             ) { progress in progressHandler?(progress * 0.7, "Downloading model...") }
         }
 
-        let config = MLModelConfiguration()
-        config.computeUnits = .cpuAndGPU  // Avoid ANE flush-to-zero behavior
+        // Embedders on CPU (FP32 precision for accumulation, matching TTSKit)
+        // CodeDecoder/MCD/SD on default (let CoreML decide CPU/GPU/ANE)
+        let cpuConfig = MLModelConfiguration()
+        cpuConfig.computeUnits = .cpuOnly
 
-        // MCD on CPU+NE (avoid GPU-only which can miscompile some ops)
-        let mcdConfig = MLModelConfiguration()
-        mcdConfig.computeUnits = .cpuAndNeuralEngine
+        // CodeDecoder on CPU+GPU (avoids ANE precision issues that cause quality regression)
+        let defaultConfig = MLModelConfiguration()
+        defaultConfig.computeUnits = .cpuAndGPU
 
         let model = Qwen3TTSCoreMLModel()
 
         progressHandler?(0.7, "Loading models...")
 
         // Load 6 models
-        func loadML(_ name: String, _ cfg: MLModelConfiguration = config) throws -> MLModel {
+        func loadML(_ name: String, _ cfg: MLModelConfiguration = defaultConfig) throws -> MLModel {
             // Try pre-compiled .mlmodelc first
             let compiledURL = cacheDir.appendingPathComponent("\(name).mlmodelc", isDirectory: true)
             if FileManager.default.fileExists(atPath: compiledURL.path) {
@@ -77,14 +79,11 @@ public final class Qwen3TTSCoreMLModel {
             return try MLModel(contentsOf: compiled, configuration: cfg)
         }
 
-        // Embedders on CPU for FP32 precision (ANE returns FP16 which causes accumulation drift)
-        let cpuConfig = MLModelConfiguration()
-        cpuConfig.computeUnits = .cpuOnly
         model.textProjector = TextProjectorModel(model: try loadML("TextProjector", cpuConfig))
         model.codeEmbedder = CodeEmbedderModel(model: try loadML("CodeEmbedder", cpuConfig))
         model.multiCodeEmbedder = MultiCodeEmbedderModel(model: try loadML("MultiCodeEmbedder", cpuConfig))
         model.codeDecoder = TalkerGenerator(model: try loadML("CodeDecoder"))
-        model.multiCodeDecoder = MultiCodeDecoderCoreML(model: try loadML("MultiCodeDecoder", mcdConfig))
+        model.multiCodeDecoder = MultiCodeDecoderCoreML(model: try loadML("MultiCodeDecoder"))
         model.speechDecoder = SpeechDecoderCoreML(model: try loadML("SpeechDecoder"))
 
         progressHandler?(0.9, "Loading embeddings...")
@@ -130,7 +129,7 @@ public final class Qwen3TTSCoreMLModel {
     public func synthesize(
         text: String,
         language: String = "english",
-        temperature: Float = 0.9,
+        temperature: Float = 0.8,
         topK: Int = 50,
         maxTokens: Int = 125,
         repetitionPenalty: Float = 1.05
@@ -148,26 +147,23 @@ public final class Qwen3TTSCoreMLModel {
             ttsPadEmbed: ttsPadEmbed, ttsBosEmbed: ttsBosEmbed,
             ttsEosEmbed: ttsEosEmbed, speakerEmbedding: speakerEmbedding)
 
+        // TTSKit-style: cap max tokens at 8× prefill length
+        let maxStepsByPrefill = 8 * prefillEmbeds.count
+        let effectiveMaxTokens = min(maxTokens, maxStepsByPrefill)
+
         // Reset CodeDecoder KV cache
         codeDecoder.resetCache()
 
         // Prefill: run all positions through CodeDecoder
         var lastLogits = [Float]()
         var lastHidden = try MLMultiArray(shape: [1, 1024, 1, 1], dataType: .float16)
-        for (idx, embed) in prefillEmbeds.enumerated() {
+        for embed in prefillEmbeds {
             (lastLogits, _) = try codeDecoder.forward(embedArray: embed)
-            let hasNaN = lastLogits.contains { $0.isNaN }
-            if idx < 3 || hasNaN {
-            }
         }
         lastHidden = codeDecoder.lastHiddenState!
 
-        // Sample first CB0 (suppress EOS for min_new_tokens=2)
-        // Debug: check greedy first token
-        var greedy = lastLogits; greedy[codecEos] = -1e9
-        for i in 2048..<codecVocabSize { if i != codecEos { greedy[i] = -1e9 } }
-        let greedyTop = greedy.enumerated().sorted { $0.element > $1.element }.prefix(3)
-
+        // Build suppress token set: [2048, 3072) except EOS (matching TTSKit)
+        // Suppress EOS for first token (min_new_tokens=2)
         lastLogits[codecEos] = -1e9
         var nextToken = TTSSampler.sample(
             logits: lastLogits, temperature: temperature, topK: topK,
@@ -186,8 +182,8 @@ public final class Qwen3TTSCoreMLModel {
             allCodebooks[i + 1].append(token)
         }
 
-        // Autoregressive decode loop
-        for step in 1..<maxTokens {
+        // Autoregressive decode loop (capped at effectiveMaxTokens)
+        for step in 1..<effectiveMaxTokens {
             // Step input = sum(all 16 codec embeddings) + tts_pad
             // Accumulate in FP32 to match Python's numpy precision, cast to FP16 at the end
             var sum32 = [Float](repeating: 0, count: hiddenSize)
@@ -224,13 +220,8 @@ public final class Qwen3TTSCoreMLModel {
             (lastLogits, _) = try codeDecoder.forward(embedArray: stepInput)
             lastHidden = codeDecoder.lastHiddenState!
 
-            if step <= 5 {
-                let eosL = lastLogits[codecEos]
-            }
-
-            // Sample CB0
+            // Sample CB0 — suppress control tokens [2048, 3072) except EOS
             let eosLogit = lastLogits[codecEos]
-            // Suppress control tokens, preserve EOS
             for i in 2048..<codecVocabSize { if i != codecEos { lastLogits[i] = -1e9 } }
             if step < 2 { lastLogits[codecEos] = -1e9 }  // min_new_tokens=2
             else { lastLogits[codecEos] = eosLogit }

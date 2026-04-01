@@ -171,8 +171,11 @@ class MultiCodeEmbedderWrapper(nn.Module):
 # ============================================================================
 
 class CodeDecoderWrapper(nn.Module):
-    """Wraps actual talker model layers for NCHW + scatter-write KV cache."""
-    def __init__(self, talker):
+    """Wraps actual talker model layers for NCHW + scatter-write KV cache.
+    Supports both stateful (MLState) and stateless (explicit I/O) conversion.
+    For stateful: key_cache/value_cache are registered as buffers → ct.StateType.
+    """
+    def __init__(self, talker, stateful=False):
         super().__init__()
         self.layers = talker.model.layers
         self.norm = talker.model.norm
@@ -186,8 +189,16 @@ class CodeDecoderWrapper(nn.Module):
         self.hidden_size = cfg.hidden_size
         self.num_layers = cfg.num_hidden_layers
         self.kv_dim = self.num_kv_heads * self.head_dim
+        self.stateful = stateful
+        if stateful:
+            total_kv = self.kv_dim * self.num_layers
+            self.register_buffer('key_cache', torch.zeros(1, total_kv, 1, MAX_SEQ_LEN))
+            self.register_buffer('value_cache', torch.zeros(1, total_kv, 1, MAX_SEQ_LEN))
 
-    def forward(self, input_embeds, cache_length, key_padding_mask, kv_cache_update_mask, key_cache, value_cache):
+    def forward(self, input_embeds, cache_length, key_padding_mask, kv_cache_update_mask, key_cache=None, value_cache=None):
+        if self.stateful:
+            key_cache = self.key_cache
+            value_cache = self.value_cache
         # RoPE from cache_length
         pos = cache_length.unsqueeze(0).float()
         inv = self.inv_freq[None, :, None].float()
@@ -249,6 +260,11 @@ class CodeDecoderWrapper(nn.Module):
         new_kv_v = torch.cat(new_value_slices, dim=1)
         nkc = key_cache * (1.0 - update_mask) + new_kv_k * update_mask
         nvc = value_cache * (1.0 - update_mask) + new_kv_v * update_mask
+        if self.stateful:
+            # In-place update for MLState
+            self.key_cache.copy_(nkc)
+            self.value_cache.copy_(nvc)
+            return logits, hidden_out
         return logits, hidden_out, nkc, nvc
 
 
@@ -360,6 +376,7 @@ def main():
     parser.add_argument("--quantize-w8", action="store_true", help="W8A16 k-means palettization")
     parser.add_argument("--tokenizer-id", default="Qwen/Qwen3-TTS-Tokenizer-12Hz",
                         help="HuggingFace tokenizer model ID for SpeechDecoder")
+    parser.add_argument("--stateful", action="store_true", help="Use MLState for KV cache (ANE-optimal)")
     parser.add_argument("--only", type=str, default=None, help="Comma-separated: TextProjector,CodeEmbedder,MultiCodeEmbedder,CodeDecoder,MultiCodeDecoder,SpeechDecoder")
     args = parser.parse_args()
 
@@ -437,15 +454,52 @@ def main():
         print("\n── CodeDecoder ──")
         kv_dim = talker.config.num_key_value_heads * talker.config.head_dim
         total_kv = kv_dim * talker.config.num_hidden_layers
-        w = CodeDecoderWrapper(talker)
+        use_stateful = args.stateful if hasattr(args, 'stateful') else False
+        w = CodeDecoderWrapper(talker, stateful=use_stateful)
         w.eval()
-        test = (torch.randn(1, 1024, 1, 1), torch.tensor([5]),
-                torch.zeros(1, MAX_SEQ_LEN), torch.zeros(1, MAX_SEQ_LEN),
-                torch.randn(1, total_kv, 1, MAX_SEQ_LEN), torch.randn(1, total_kv, 1, MAX_SEQ_LEN))
-        test[2][0, 6:] = float('-inf'); test[3][0, 5] = 1.0
+        if use_stateful:
+            # Stateful: KV cache as buffers, not forward args
+            test = (torch.randn(1, 1024, 1, 1), torch.tensor([5]),
+                    torch.zeros(1, MAX_SEQ_LEN), torch.zeros(1, MAX_SEQ_LEN))
+            test[2][0, 6:] = float('-inf'); test[3][0, 5] = 1.0
+        else:
+            test = (torch.randn(1, 1024, 1, 1), torch.tensor([5]),
+                    torch.zeros(1, MAX_SEQ_LEN), torch.zeros(1, MAX_SEQ_LEN),
+                    torch.randn(1, total_kv, 1, MAX_SEQ_LEN), torch.randn(1, total_kv, 1, MAX_SEQ_LEN))
+            test[2][0, 6:] = float('-inf'); test[3][0, 5] = 1.0
         traced = torch.jit.trace(w, test, strict=False)
-        ml = convert_to_coreml(traced,
-            inputs=[
+
+        if use_stateful:
+            print("  Converting with MLState (stateful KV cache)...")
+            state_inputs = [
+                ct.TensorType("input_embeds", shape=(1, 1024, 1, 1), dtype=np.float16),
+                ct.TensorType("cache_length", shape=(1,), dtype=np.int32),
+                ct.TensorType("key_padding_mask", shape=(1, MAX_SEQ_LEN), dtype=np.float16),
+                ct.TensorType("kv_cache_update_mask", shape=(1, MAX_SEQ_LEN), dtype=np.float16),
+            ]
+            states = [
+                ct.StateType(
+                    wrapped_type=ct.TensorType(shape=(1, total_kv, 1, MAX_SEQ_LEN), dtype=np.float16),
+                    name="key_cache"),
+                ct.StateType(
+                    wrapped_type=ct.TensorType(shape=(1, total_kv, 1, MAX_SEQ_LEN), dtype=np.float16),
+                    name="value_cache"),
+            ]
+            state_outputs = [
+                ct.TensorType("logits", dtype=np.float16),
+                ct.TensorType("hidden_states", dtype=np.float16),
+            ]
+            ml = ct.convert(traced, inputs=state_inputs, outputs=state_outputs,
+                            states=states,
+                            minimum_deployment_target=ct.target.iOS18,
+                            compute_precision=fp16)
+            if args.quantize_w8:
+                from coremltools.optimize.coreml import OpPalettizerConfig, OptimizationConfig, palettize_weights
+                ml = palettize_weights(ml, OptimizationConfig(
+                    global_config=OpPalettizerConfig(mode="kmeans", nbits=8, weight_threshold=512)))
+        else:
+            ml = convert_to_coreml(traced,
+                inputs=[
                 ct.TensorType("input_embeds", shape=(1, 1024, 1, 1), dtype=np.float16),
                 ct.TensorType("cache_length", shape=(1,), dtype=np.int32),
                 ct.TensorType("key_padding_mask", shape=(1, MAX_SEQ_LEN), dtype=np.float16),

@@ -43,7 +43,6 @@ final class MultiCodeDecoderCoreML {
 
         // Sample CB1 from lm_head[0]
         let cb1Logits = extractGroupLogits(logits, group: 0)
-        let greedyCB1 = cb1Logits.enumerated().max(by: { $0.element < $1.element })!
         var prevToken = TTSSampler.sample(logits: cb1Logits, temperature: temperature, topK: topK)
         var tokens = [prevToken]
 
