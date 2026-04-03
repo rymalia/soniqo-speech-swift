@@ -275,7 +275,7 @@ final class ParakeetASRTests: XCTestCase {
 
     func testTranscriptionResultHasConfidence() {
         let result = TranscriptionResult(text: "hello", confidence: 0.85)
-        XCTAssertEqual(result.confidence, 0.85, accuracy: 0.001)
+        XCTAssertEqual(Double(result.confidence), 0.85, accuracy: 0.01)
     }
 
     func testTranscriptionResultDefaultConfidence() {
@@ -283,12 +283,84 @@ final class ParakeetASRTests: XCTestCase {
         XCTAssertEqual(result.confidence, 0.0)
     }
 
-    func testConfidenceSigmoidRange() {
-        // Simulate the sigmoid confidence calculation from TDT decoder
-        for meanLogit: Float in [-10, -1, 0, 1, 5, 10, 50] {
-            let confidence = 1.0 / (1.0 + exp(-meanLogit * 0.1))
-            XCTAssertGreaterThanOrEqual(confidence, 0.0, "Confidence must be >= 0")
-            XCTAssertLessThanOrEqual(confidence, 1.0, "Confidence must be <= 1")
+    func testConfidenceExpRange() {
+        // exp(mean log-prob) confidence — must be in [0, 1]
+        for logProb: Float in [-10, -5, -1, -0.1, 0] {
+            let confidence = min(1.0, exp(logProb))
+            XCTAssertGreaterThanOrEqual(confidence, 0.0)
+            XCTAssertLessThanOrEqual(confidence, 1.0)
         }
+    }
+
+    // MARK: - Per-Word Confidence Tests
+
+    func testDecodeWordsBasic() {
+        let vocab = ParakeetVocabulary(idToToken: [
+            0: "\u{2581}the",
+            1: "\u{2581}cat",
+            2: "\u{2581}sat",
+        ])
+        let logProbs: [Float] = [-0.1, -0.5, -0.2]
+        let words = vocab.decodeWords([0, 1, 2], logProbs: logProbs)
+
+        XCTAssertEqual(words.count, 3)
+        XCTAssertEqual(words[0].word, "the")
+        XCTAssertEqual(words[1].word, "cat")
+        XCTAssertEqual(words[2].word, "sat")
+
+        // Each word's confidence should be exp(log_prob)
+        XCTAssertEqual(Double(words[0].confidence), Double(exp(Float(-0.1))), accuracy: 0.01)
+        XCTAssertEqual(Double(words[1].confidence), Double(exp(Float(-0.5))), accuracy: 0.01)
+        XCTAssertEqual(Double(words[2].confidence), Double(exp(Float(-0.2))), accuracy: 0.01)
+    }
+
+    func testDecodeWordsSubword() {
+        let vocab = ParakeetVocabulary(idToToken: [
+            0: "\u{2581}un",
+            1: "believ",
+            2: "able",
+            3: "\u{2581}word",
+        ])
+        let logProbs: [Float] = [-0.3, -0.5, -0.2, -0.1]
+        let words = vocab.decodeWords([0, 1, 2, 3], logProbs: logProbs)
+
+        XCTAssertEqual(words.count, 2)
+        XCTAssertEqual(words[0].word, "unbelievable")
+        XCTAssertEqual(words[1].word, "word")
+
+        // "unbelievable" confidence = exp(mean(-0.3, -0.5, -0.2))
+        let expectedConf: Float = exp((-0.3 + -0.5 + -0.2) / 3.0)
+        XCTAssertEqual(Double(words[0].confidence), Double(expectedConf), accuracy: 0.01)
+    }
+
+    func testDecodeWordsEmpty() {
+        let vocab = ParakeetVocabulary(idToToken: [:])
+        let words = vocab.decodeWords([], logProbs: [])
+        XCTAssertTrue(words.isEmpty)
+    }
+
+    func testDecodeWordsMismatchedLengths() {
+        let vocab = ParakeetVocabulary(idToToken: [0: "\u{2581}hi"])
+        // Mismatched token/logProb counts — should return single word with 0 confidence
+        let words = vocab.decodeWords([0], logProbs: [])
+        XCTAssertEqual(words.count, 1)
+        XCTAssertEqual(words[0].word, "hi")
+        XCTAssertEqual(words[0].confidence, 0)
+    }
+
+    func testTranscriptionResultWithWords() {
+        let words = [
+            WordConfidence(word: "hello", confidence: 0.95),
+            WordConfidence(word: "world", confidence: 0.88),
+        ]
+        let result = TranscriptionResult(text: "hello world", confidence: 0.91, words: words)
+        XCTAssertEqual(result.words?.count, 2)
+        XCTAssertEqual(result.words?[0].word, "hello")
+        XCTAssertEqual(Double(result.words?[1].confidence ?? 0), 0.88, accuracy: 0.01)
+    }
+
+    func testTranscriptionResultWithoutWords() {
+        let result = TranscriptionResult(text: "hello")
+        XCTAssertNil(result.words)
     }
 }
