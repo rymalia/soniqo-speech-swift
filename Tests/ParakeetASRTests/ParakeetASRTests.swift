@@ -363,4 +363,64 @@ final class ParakeetASRTests: XCTestCase {
         let result = TranscriptionResult(text: "hello")
         XCTAssertNil(result.words)
     }
+
+    func testTranscriptionResultBackwardCompat() {
+        // Existing callers that don't pass words should still work
+        let result = TranscriptionResult(text: "test", language: "english", confidence: 0.9)
+        XCTAssertNil(result.words)
+        XCTAssertEqual(result.text, "test")
+        XCTAssertEqual(Double(result.confidence), 0.9, accuracy: 0.01)
+    }
+
+    func testLogSoftmaxKnownValues() {
+        // Verify log-softmax math: for logits [2, 1, 0],
+        // log_softmax[0] = 2 - log(e^2 + e^1 + e^0) = 2 - log(7.389 + 2.718 + 1) ≈ 2 - 2.408 ≈ -0.408
+        // This tests the same math used in TDTGreedyDecoder.logSoftmax
+        let logits: [Float] = [2.0, 1.0, 0.0]
+        let maxVal = logits.max()!
+        let sumExp = logits.map { exp($0 - maxVal) }.reduce(0, +)
+        let logSumExp = log(sumExp) + maxVal
+
+        let logProb0 = logits[0] - logSumExp
+        let logProb1 = logits[1] - logSumExp
+        let logProb2 = logits[2] - logSumExp
+
+        // Softmax probs should sum to ~1
+        let probSum = exp(logProb0) + exp(logProb1) + exp(logProb2)
+        XCTAssertEqual(Double(probSum), 1.0, accuracy: 0.001)
+
+        // log_softmax values should be negative
+        XCTAssertLessThan(logProb0, 0)
+        XCTAssertLessThan(logProb1, 0)
+        XCTAssertLessThan(logProb2, 0)
+
+        // Highest logit should have highest log-prob
+        XCTAssertGreaterThan(logProb0, logProb1)
+        XCTAssertGreaterThan(logProb1, logProb2)
+
+        // exp(log_softmax) ≈ known softmax values
+        XCTAssertEqual(Double(exp(logProb0)), 0.665, accuracy: 0.01) // e^2 / sum
+        XCTAssertEqual(Double(exp(logProb1)), 0.245, accuracy: 0.01) // e^1 / sum
+        XCTAssertEqual(Double(exp(logProb2)), 0.090, accuracy: 0.01) // e^0 / sum
+    }
+
+    func testWordConfidenceRange() {
+        // All word confidences from decodeWords must be in [0, 1]
+        let vocab = ParakeetVocabulary(idToToken: [
+            0: "\u{2581}high",
+            1: "\u{2581}medium",
+            2: "\u{2581}low",
+        ])
+        // Range of log-probs: near-0 (high conf) to very negative (low conf)
+        let logProbs: [Float] = [-0.01, -1.0, -5.0]
+        let words = vocab.decodeWords([0, 1, 2], logProbs: logProbs)
+
+        for word in words {
+            XCTAssertGreaterThanOrEqual(word.confidence, 0.0, "\(word.word) confidence < 0")
+            XCTAssertLessThanOrEqual(word.confidence, 1.0, "\(word.word) confidence > 1")
+        }
+        // Higher log-prob → higher confidence
+        XCTAssertGreaterThan(words[0].confidence, words[1].confidence)
+        XCTAssertGreaterThan(words[1].confidence, words[2].confidence)
+    }
 }
