@@ -51,7 +51,7 @@ public final class KokoroTTSModel {
                 operation: "kokoro-synthesize", reason: "Model not loaded")
         }
 
-        let tokenIds = phonemizer.tokenize(text, maxLength: config.maxPhonemeLength)
+        let tokenIds = phonemizer.tokenize(text, maxLength: config.maxPhonemeLength, language: language)
         let tokenCount = min(tokenIds.count, 128)
 
         guard let styleVector = voiceEmbeddings[voice] else {

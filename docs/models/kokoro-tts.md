@@ -20,7 +20,7 @@ Text → Phonemizer → Duration Model → Alignment → Prosody Model → Decod
    [G2P BART]         [Speed]
 ```
 
-1. **Phonemizer** converts text to phoneme token IDs via dictionary lookup, suffix stemming, or neural G2P fallback
+1. **Phonemizer** converts text to phoneme token IDs — English uses dictionary lookup + suffix stemming + neural G2P; Chinese uses CFStringTransform pinyin-to-IPA; Japanese uses CFStringTokenizer + katakana-to-IPA; Korean/Hindi use Apple transliteration-to-IPA; French/Spanish/Portuguese use rule-based grapheme-to-IPA
 2. **Duration model** predicts per-phoneme durations + intermediate features
 3. **Alignment** (Swift-side) builds a frame-to-phoneme matrix from predicted durations
 4. **Prosody model** predicts F0 (pitch) and noise features from aligned prosody features
@@ -168,10 +168,15 @@ python scripts/convert_kokoro_coreml.py --output /tmp/kokoro-coreml --quantize i
 
 ```
 Sources/KokoroTTS/
-  Configuration.swift      Model config, voice/language selection
-  KokoroModel.swift        End-to-end CoreML model loading and inference
-  KokoroTTS.swift          High-level API (fromPretrained, synthesize, alignment)
-  Phonemizer.swift         Text → phoneme tokenization
-  KokoroTTS+Protocols.swift Protocol conformance
-  KokoroTTS+Memory.swift   Memory reporting
+  Configuration.swift        Model config, voice/language selection
+  KokoroModel.swift          End-to-end CoreML model loading and inference
+  KokoroTTS.swift            High-level API (fromPretrained, synthesize, alignment)
+  Phonemizer.swift           English G2P + multilingual routing (en/zh/ja/ko/hi/fr/es/pt)
+  ChinesePhonemizer.swift    Chinese: CFStringTransform pinyin → IPA
+  JapanesePhonemizer.swift   Japanese: CFStringTokenizer → katakana → IPA (M2P table)
+  KoreanPhonemizer.swift     Korean: Apple transliteration → IPA
+  HindiPhonemizer.swift      Hindi: Apple IAST transliteration → IPA
+  LatinPhonemizer.swift      French/Spanish/Portuguese: rule-based grapheme → IPA
+  KokoroTTS+Protocols.swift  Protocol conformance
+  KokoroTTS+Memory.swift     Memory reporting
 ```

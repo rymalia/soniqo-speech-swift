@@ -5,7 +5,7 @@ import NaturalLanguage
 /// GPL-free phonemizer for Kokoro TTS.
 ///
 /// Three-tier approach (all Apache-2.0 / BSD compatible):
-/// 1. **Dictionary lookup** — gold + silver IPA dictionaries from misaki (Apache-2.0)
+/// 1. **Dictionary lookup** — gold + silver IPA pronunciation dictionaries
 /// 2. **Suffix stemming** — strips -s/-ed/-ing, looks up stem, applies phonological rules
 /// 3. **CoreML BART G2P** — encoder-decoder neural model for OOV words (Apache-2.0)
 ///
@@ -130,11 +130,40 @@ public final class KokoroPhonemizer {
         g2pEncoder = try MLModel(contentsOf: url, configuration: config)
     }
 
+    // MARK: - Multilingual Phonemizers
+
+    private lazy var chinesePhonemizer = ChinesePhonemizer()
+    private lazy var japanesePhonemizer = JapanesePhonemizer()
+    private lazy var koreanPhonemizer = KoreanPhonemizer()
+    private lazy var hindiPhonemizer = HindiPhonemizer()
+    private lazy var frenchPhonemizer = LatinPhonemizer(language: .french)
+    private lazy var spanishPhonemizer = LatinPhonemizer(language: .spanish)
+    private lazy var portuguesePhonemizer = LatinPhonemizer(language: .portuguese)
+
     // MARK: - Tokenization
 
-    /// Convert text to phoneme token IDs.
-    public func tokenize(_ text: String, maxLength: Int = 510) -> [Int] {
-        let phonemes = textToPhonemes(text)
+    /// Convert text to phoneme token IDs using language-appropriate phonemizer.
+    public func tokenize(_ text: String, maxLength: Int = 510, language: String = "en") -> [Int] {
+        let phonemes: String
+        switch language {
+        case "zh", "cmn", "chinese", "mandarin":
+            phonemes = chinesePhonemizer.phonemize(text)
+        case "ja", "japanese":
+            phonemes = japanesePhonemizer.phonemize(text)
+        case "ko", "korean":
+            phonemes = koreanPhonemizer.phonemize(text)
+        case "hi", "hindi":
+            phonemes = hindiPhonemizer.phonemize(text)
+        case "fr", "french":
+            phonemes = frenchPhonemizer.phonemize(text)
+        case "es", "spanish":
+            phonemes = spanishPhonemizer.phonemize(text)
+        case "pt", "portuguese":
+            phonemes = portuguesePhonemizer.phonemize(text)
+        default:
+            phonemes = textToPhonemes(text)
+        }
+
         var ids = [bosId]
 
         // Tokenize IPA string character by character
