@@ -1,0 +1,311 @@
+import Foundation
+
+/// Chinese text-to-phoneme conversion for Kokoro TTS.
+///
+/// Pipeline: Chinese text → CFStringTokenizer (word segmentation + pinyin) → IPA
+/// Uses Apple's built-in Mandarin Latin transcription — no external dependencies.
+///
+/// Pinyin-to-IPA mapping adapted from stefantaubert/pinyin-to-ipa (MIT license).
+/// Tone retoning from hexgrad/misaki (Apache-2.0).
+final class ChinesePhonemizer {
+
+    // MARK: - Pinyin Initial → IPA
+
+    /// Mandarin initials mapped to IPA. Longest-match order matters (zh before z).
+    private static let initials: [(pinyin: String, ipa: String)] = [
+        ("zh", "ʈʂ"), ("ch", "ʈʂʰ"), ("sh", "ʂ"),
+        ("b", "p"), ("p", "pʰ"), ("m", "m"), ("f", "f"),
+        ("d", "t"), ("t", "tʰ"), ("n", "n"), ("l", "l"),
+        ("g", "k"), ("k", "kʰ"), ("h", "x"),
+        ("j", "tɕ"), ("q", "tɕʰ"), ("x", "ɕ"),
+        ("z", "ts"), ("c", "tsʰ"), ("s", "s"),
+        ("r", "ɻ"),
+    ]
+
+    // MARK: - Pinyin Final → IPA
+
+    /// Mandarin finals mapped to IPA (tone placeholder "0" replaced later).
+    /// Ordered longest-first to ensure correct greedy matching.
+    private static let finals: [(pinyin: String, ipa: String)] = [
+        ("iang", "ja0ŋ"), ("iong", "jʊ0ŋ"), ("uang", "wa0ŋ"), ("ueng", "wə0ŋ"),
+        ("iao", "jau̯0"), ("ian", "jɛ0n"), ("iou", "jou̯0"),
+        ("uai", "wai̯0"), ("uan", "wa0n"), ("uei", "wei̯0"), ("uen", "wə0n"),
+        ("üan", "ɥɛ0n"), ("üe", "ɥe0"),
+        ("ang", "a0ŋ"), ("eng", "ə0ŋ"), ("ing", "i0ŋ"), ("ong", "ʊ0ŋ"),
+        ("ai", "ai̯0"), ("ei", "ei̯0"), ("ao", "au̯0"), ("ou", "ou̯0"),
+        ("an", "a0n"), ("en", "ə0n"), ("in", "i0n"), ("ün", "y0n"),
+        ("ia", "ja0"), ("ie", "je0"), ("uo", "wo0"), ("ua", "wa0"),
+        ("a", "a0"), ("e", "ɤ0"), ("i", "i0"), ("o", "wo0"), ("u", "u0"), ("ü", "y0"),
+    ]
+
+    /// Context-dependent final for "i" after zh/ch/sh/r → retroflex continuant.
+    private static let retroflexI = "ɻ̩0"
+    /// Context-dependent final for "i" after z/c/s → alveolar continuant.
+    private static let alveolarI = "ɹ̩0"
+
+    // MARK: - Interjections & Syllabic Consonants
+
+    private static let interjections: [String: String] = [
+        "er": "ɚ0", "io": "jɔ0", "ê": "ɛ0",
+    ]
+
+    private static let syllabicConsonants: [String: String] = [
+        "hng": "hŋ0", "hm": "hm0", "ng": "ŋ0", "m": "m0", "n": "n0",
+    ]
+
+    // MARK: - Tone Contours
+
+    private static let toneContours: [Character: String] = [
+        "1": "˥",     // high level
+        "2": "˧˥",    // rising
+        "3": "˧˩˧",   // dipping
+        "4": "˥˩",    // falling
+        "5": "",       // neutral
+        "0": "",       // no tone
+    ]
+
+    /// Misaki-style simplified tone marks.
+    private static let retoneMap: [(from: String, to: String)] = [
+        ("˧˩˧", "↓"),  // 3rd tone
+        ("˧˥", "↗"),   // 2nd tone
+        ("˥˩", "↘"),   // 4th tone
+        ("˥", "→"),    // 1st tone
+    ]
+
+    // MARK: - Chinese Punctuation
+
+    private static let punctuationMap: [Character: String] = [
+        "，": ",", "。": ".", "！": "!", "？": "?", "；": ";", "：": ":",
+        "、": ",", "—": "-",
+        "「": "\"", "」": "\"", "『": "\"", "』": "\"",
+        "《": "\"", "》": "\"", "【": "\"", "】": "\"",
+        "（": "(", "）": ")",
+    ]
+
+    // MARK: - Public API
+
+    /// Convert Chinese text to IPA phoneme string.
+    func phonemize(_ text: String) -> String {
+        let locale = Locale(identifier: "zh_CN") as CFLocale
+        let cfText = text as CFString
+        let length = CFStringGetLength(cfText)
+        guard length > 0 else { return "" }
+
+        let tokenizer = CFStringTokenizerCreate(nil, cfText, CFRangeMake(0, length),
+                                                 kCFStringTokenizerUnitWord, locale)
+
+        var result = ""
+        var lastWasWord = false
+
+        // Process character by character, using tokenizer for word boundaries
+        var tokenResult = CFStringTokenizerAdvanceToNextToken(tokenizer)
+        var tokens: [(word: String, pinyin: String?)] = []
+
+        while tokenResult != [] {
+            let range = CFStringTokenizerGetCurrentTokenRange(tokenizer)
+            let latin = CFStringTokenizerCopyCurrentTokenAttribute(
+                tokenizer, kCFStringTokenizerAttributeLatinTranscription) as? String
+            let nsText = text as NSString
+            let word = nsText.substring(with: NSRange(location: range.location, length: range.length))
+            tokens.append((word: word, pinyin: latin))
+            tokenResult = CFStringTokenizerAdvanceToNextToken(tokenizer)
+        }
+
+        // Also handle punctuation between tokens
+        var cursor = text.startIndex
+        for token in tokens {
+            // Find this token in the text
+            if let tokenRange = text.range(of: token.word, range: cursor..<text.endIndex) {
+                // Handle any punctuation/whitespace before this token
+                let gap = String(text[cursor..<tokenRange.lowerBound])
+                for ch in gap {
+                    if let punct = Self.punctuationMap[ch] {
+                        result += punct
+                        lastWasWord = false
+                    } else if ch.isWhitespace {
+                        if lastWasWord { result += " " }
+                        lastWasWord = false
+                    }
+                }
+
+                // Convert word
+                if let pinyin = token.pinyin {
+                    if lastWasWord { result += " " }
+                    result += Self.pinyinToIPA(pinyin)
+                    lastWasWord = true
+                } else if token.word.allSatisfy({ $0.isASCII && $0.isLetter }) {
+                    // English passthrough — leave as-is for the main phonemizer
+                    if lastWasWord { result += " " }
+                    result += token.word.lowercased()
+                    lastWasWord = true
+                }
+
+                cursor = tokenRange.upperBound
+            }
+        }
+
+        // Handle trailing punctuation
+        let trailing = String(text[cursor...])
+        for ch in trailing {
+            if let punct = Self.punctuationMap[ch] {
+                result += punct
+            }
+        }
+
+        return result
+    }
+
+    // MARK: - Pinyin → IPA Conversion
+
+    /// Convert a tone-marked pinyin string (e.g. "nǐ hǎo") to IPA.
+    static func pinyinToIPA(_ pinyin: String) -> String {
+        // Split on whitespace/hyphens to get individual syllables
+        let syllables = pinyin.components(separatedBy: CharacterSet.whitespaces)
+            .flatMap { $0.components(separatedBy: "-") }
+            .filter { !$0.isEmpty }
+
+        return syllables.map { syllableToIPA($0) }.joined()
+    }
+
+    /// Convert a single pinyin syllable to IPA.
+    static func syllableToIPA(_ syllable: String) -> String {
+        // Normalize: extract tone from diacritics
+        let (base, tone) = extractTone(syllable)
+        let normalized = normalizeFinalsNotation(base)
+
+        // Check interjections
+        if let ipa = interjections[normalized] {
+            return applyTone(ipa, tone: tone)
+        }
+
+        // Check syllabic consonants
+        if let ipa = syllabicConsonants[normalized] {
+            return applyTone(ipa, tone: tone)
+        }
+
+        // Split into initial + final
+        var initial = ""
+        var initialIPA = ""
+        var remainder = normalized
+
+        for (py, ipa) in initials {
+            if normalized.hasPrefix(py) {
+                initial = py
+                initialIPA = ipa
+                remainder = String(normalized.dropFirst(py.count))
+                break
+            }
+        }
+
+        // Handle empty remainder (standalone initial — shouldn't happen for valid pinyin)
+        guard !remainder.isEmpty else {
+            return initialIPA
+        }
+
+        // Context-dependent "i" after retroflex/alveolar initials
+        if remainder == "i" {
+            if ["zh", "ch", "sh", "r"].contains(initial) {
+                return initialIPA + applyTone(retroflexI, tone: tone)
+            }
+            if ["z", "c", "s"].contains(initial) {
+                return initialIPA + applyTone(alveolarI, tone: tone)
+            }
+        }
+
+        // Match final
+        for (py, ipa) in finals {
+            if remainder == py {
+                return initialIPA + applyTone(ipa, tone: tone)
+            }
+        }
+
+        // Fallback: return raw
+        return initialIPA + remainder
+    }
+
+    /// Replace tone placeholder "0" with actual tone contour.
+    private static func applyTone(_ ipa: String, tone: Character) -> String {
+        let contour = toneContours[tone] ?? ""
+        // Apply retoning (misaki style)
+        var toned = ipa.replacingOccurrences(of: "0", with: contour)
+        for (from, to) in retoneMap {
+            toned = toned.replacingOccurrences(of: from, with: to)
+        }
+        return toned
+    }
+
+    /// Extract tone number from diacritic-marked pinyin.
+    /// Returns (base pinyin without diacritics, tone character '1'-'5').
+    static func extractTone(_ syllable: String) -> (String, Character) {
+        var base = ""
+        var tone: Character = "5" // default neutral
+
+        for scalar in syllable.unicodeScalars {
+            switch scalar.value {
+            // Tone 1: macron (ā, ē, ī, ō, ū, ǖ)
+            case 0x0101: base += "a"; tone = "1"
+            case 0x0113: base += "e"; tone = "1"
+            case 0x012B: base += "i"; tone = "1"
+            case 0x014D: base += "o"; tone = "1"
+            case 0x016B: base += "u"; tone = "1"
+            case 0x01D6: base += "ü"; tone = "1"
+            // Tone 2: acute (á, é, í, ó, ú, ǘ)
+            case 0x00E1: base += "a"; tone = "2"
+            case 0x00E9: base += "e"; tone = "2"
+            case 0x00ED: base += "i"; tone = "2"
+            case 0x00F3: base += "o"; tone = "2"
+            case 0x00FA: base += "u"; tone = "2"
+            case 0x01D8: base += "ü"; tone = "2"
+            // Tone 3: caron (ǎ, ě, ǐ, ǒ, ǔ, ǚ)
+            case 0x01CE: base += "a"; tone = "3"
+            case 0x011B: base += "e"; tone = "3"
+            case 0x01D0: base += "i"; tone = "3"
+            case 0x01D2: base += "o"; tone = "3"
+            case 0x01D4: base += "u"; tone = "3"
+            case 0x01DA: base += "ü"; tone = "3"
+            // Tone 4: grave (à, è, ì, ò, ù, ǜ)
+            case 0x00E0: base += "a"; tone = "4"
+            case 0x00E8: base += "e"; tone = "4"
+            case 0x00EC: base += "i"; tone = "4"
+            case 0x00F2: base += "o"; tone = "4"
+            case 0x00F9: base += "u"; tone = "4"
+            case 0x01DC: base += "ü"; tone = "4"
+            default:
+                base += String(scalar)
+            }
+        }
+
+        return (base.lowercased(), tone)
+    }
+
+    /// Normalize pinyin final notation to match our lookup tables.
+    /// Handles: iu→iou, ui→uei, un→uen, v/ü normalization.
+    static func normalizeFinalsNotation(_ pinyin: String) -> String {
+        var s = pinyin.replacingOccurrences(of: "v", with: "ü")
+            .replacingOccurrences(of: "yu", with: "ü")
+
+        // Common abbreviations in standard pinyin
+        // iu → iou (e.g., liu → liou)
+        if s.hasSuffix("iu") && s.count > 2 {
+            s = String(s.dropLast(2)) + "iou"
+        }
+        // ui → uei (e.g., gui → guei)
+        if s.hasSuffix("ui") && s.count > 2 {
+            s = String(s.dropLast(2)) + "uei"
+        }
+        // un → uen (e.g., gun → guen), but not ün
+        if s.hasSuffix("un") && !s.hasSuffix("ün") && s.count > 2 {
+            s = String(s.dropLast(2)) + "uen"
+        }
+
+        // After j/q/x, u → ü
+        if s.count >= 2 {
+            let first = String(s.prefix(1))
+            if ["j", "q", "x"].contains(first) {
+                s = first + String(s.dropFirst()).replacingOccurrences(of: "u", with: "ü")
+            }
+        }
+
+        return s
+    }
+}

@@ -130,11 +130,25 @@ public final class KokoroPhonemizer {
         g2pEncoder = try MLModel(contentsOf: url, configuration: config)
     }
 
+    // MARK: - Multilingual Phonemizers
+
+    private lazy var chinesePhonemizer = ChinesePhonemizer()
+    private lazy var japanesePhonemizer = JapanesePhonemizer()
+
     // MARK: - Tokenization
 
-    /// Convert text to phoneme token IDs.
-    public func tokenize(_ text: String, maxLength: Int = 510) -> [Int] {
-        let phonemes = textToPhonemes(text)
+    /// Convert text to phoneme token IDs using language-appropriate phonemizer.
+    public func tokenize(_ text: String, maxLength: Int = 510, language: String = "en") -> [Int] {
+        let phonemes: String
+        switch language {
+        case "zh", "cmn", "chinese", "mandarin":
+            phonemes = chinesePhonemizer.phonemize(text)
+        case "ja", "japanese":
+            phonemes = japanesePhonemizer.phonemize(text)
+        default:
+            phonemes = textToPhonemes(text)
+        }
+
         var ids = [bosId]
 
         // Tokenize IPA string character by character
