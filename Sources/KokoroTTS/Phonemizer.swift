@@ -153,7 +153,7 @@ public final class KokoroPhonemizer {
         case "ja", "japanese":
             phonemes = japanesePhonemizer.phonemize(text)
         case "it", "italian":
-            phonemes = italianPhonemizer.phonemize(text)
+            phonemes = phonemizeWithDict(text, dict: PronunciationDicts.it, fallback: italianPhonemizer)
         case "fr", "french":
             phonemes = phonemizeWithDict(text, dict: PronunciationDicts.fr, fallback: frenchPhonemizer)
         case "es", "spanish":
