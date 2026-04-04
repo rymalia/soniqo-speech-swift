@@ -154,13 +154,14 @@ public final class KokoroPhonemizer {
             phonemes = japanesePhonemizer.phonemize(text)
         case "it", "italian":
             phonemes = italianPhonemizer.phonemize(text)
+        case "fr", "french":
+            phonemes = phonemizeWithDict(text, dict: PronunciationDicts.fr, fallback: frenchPhonemizer)
         case "es", "spanish":
-            phonemes = spanishPhonemizer.phonemize(text)
-        // French, Portuguese, Hindi, Korean, German: use English phonemizer (dictionary
-        // + BART G2P). The G2P model produces stress-marked IPA that Kokoro's duration
-        // model handles well, even with English-accented pronunciation. Our rule-based
-        // phonemizers produce correct IPA but too-short token sequences that result in
-        // rushed/garbled audio.
+            phonemes = phonemizeWithDict(text, dict: PronunciationDicts.es, fallback: spanishPhonemizer)
+        case "pt", "portuguese":
+            phonemes = phonemizeWithDict(text, dict: PronunciationDicts.pt, fallback: portuguesePhonemizer)
+        case "hi", "hindi":
+            phonemes = phonemizeWithDict(text, dict: PronunciationDicts.hi, fallback: hindiPhonemizer)
         default:
             phonemes = textToPhonemes(text)
         }
@@ -189,6 +190,121 @@ public final class KokoroPhonemizer {
     public func pad(_ ids: [Int], to length: Int) -> [Int] {
         if ids.count >= length { return Array(ids.prefix(length)) }
         return ids + [Int](repeating: padId, count: length - ids.count)
+    }
+
+    // MARK: - Dictionary-Based Phonemization
+
+    /// Phonemize text using dictionary lookup with rule-based fallback.
+    /// Words found in the dictionary use pre-computed IPA with correct stress placement.
+    /// Unknown words fall back to the language-specific rule-based G2P.
+    private func phonemizeWithDict(_ text: String, dict: [String: String], fallback: LatinPhonemizer) -> String {
+        var result = ""
+        var lastWasWord = false
+
+        for ch in text {
+            if ch.isWhitespace {
+                if lastWasWord { result += " " }
+                lastWasWord = false
+            } else if ch.isPunctuation || ch.isSymbol {
+                if let mapped = punctuationToPhoneme(String(ch)) {
+                    result += mapped
+                }
+                lastWasWord = false
+            } else if ch.isLetter || ch == "'" || ch == "'" {
+                // Accumulate word characters — handled below
+                continue
+            }
+        }
+
+        // Split into words and look up each one
+        let words = text.components(separatedBy: .whitespaces).filter { !$0.isEmpty }
+        result = ""
+        lastWasWord = false
+
+        for word in words {
+            // Strip trailing punctuation
+            var clean = word.lowercased()
+            var trailing = ""
+            while let last = clean.last, last.isPunctuation || last.isSymbol {
+                trailing = String(last) + trailing
+                clean = String(clean.dropLast())
+            }
+            var leading = ""
+            while let first = clean.first, first.isPunctuation || first.isSymbol {
+                leading += String(first)
+                clean = String(clean.dropFirst())
+            }
+
+            // Leading punctuation
+            for ch in leading {
+                if let mapped = mapPunctuation(ch) { result += mapped }
+            }
+
+            if !clean.isEmpty {
+                if lastWasWord { result += " " }
+                // Dictionary lookup, then fallback
+                if let ipa = dict[clean] {
+                    result += ipa
+                } else {
+                    result += fallback.phonemizeWord(clean)
+                }
+                lastWasWord = true
+            }
+
+            // Trailing punctuation
+            for ch in trailing {
+                if let mapped = mapPunctuation(ch) { result += mapped }
+                lastWasWord = false
+            }
+        }
+
+        return result
+    }
+
+    /// Dictionary-based phonemization for Hindi (uses HindiPhonemizer as fallback).
+    private func phonemizeWithDict(_ text: String, dict: [String: String], fallback: HindiPhonemizer) -> String {
+        let words = text.components(separatedBy: .whitespaces).filter { !$0.isEmpty }
+        var result = ""
+        var lastWasWord = false
+
+        for word in words {
+            var clean = word
+            var trailing = ""
+            while let last = clean.last, last.isPunctuation || last.isSymbol {
+                trailing = String(last) + trailing
+                clean = String(clean.dropLast())
+            }
+
+            if !clean.isEmpty {
+                if lastWasWord { result += " " }
+                if let ipa = dict[clean] {
+                    result += ipa
+                } else {
+                    result += fallback.phonemizeWord(clean)
+                }
+                lastWasWord = true
+            }
+
+            for ch in trailing {
+                if let mapped = mapPunctuation(ch) { result += mapped }
+                lastWasWord = false
+            }
+        }
+
+        return result
+    }
+
+    private func mapPunctuation(_ ch: Character) -> String? {
+        switch ch {
+        case ",", "，": return ","
+        case ".", "。": return "."
+        case "!", "！": return "!"
+        case "?", "？": return "?"
+        case ";", "；": return ";"
+        case ":": return ":"
+        case "।": return "."
+        default: return nil
+        }
     }
 
     // MARK: - Text-to-Phoneme Pipeline

@@ -72,6 +72,11 @@ final class LatinPhonemizer {
 
     // MARK: - Word Conversion
 
+    /// Public word-level phonemization for dictionary fallback.
+    func phonemizeWord(_ word: String) -> String {
+        return convertWord(word.lowercased())
+    }
+
     private func convertWord(_ word: String) -> String {
         var ipa: String
         switch language {

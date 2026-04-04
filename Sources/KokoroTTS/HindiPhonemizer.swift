@@ -37,6 +37,15 @@ final class HindiPhonemizer {
 
     // MARK: - Public API
 
+    /// Phonemize a single word (for dictionary fallback).
+    func phonemizeWord(_ word: String) -> String {
+        let m = NSMutableString(string: word)
+        CFStringTransform(m, nil, kCFStringTransformToLatin, false)
+        let latin = (m as String).lowercased()
+        let ipa = Self.romanToIPA(latin)
+        return ipa.count >= 4 ? "ˈ" + ipa : ipa
+    }
+
     func phonemize(_ text: String) -> String {
         var result = ""
         var lastWasWord = false

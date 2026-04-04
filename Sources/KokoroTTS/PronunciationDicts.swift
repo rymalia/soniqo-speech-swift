@@ -1,0 +1,153 @@
+import Foundation
+
+/// Pronunciation dictionaries for Kokoro TTS multilingual support.
+///
+/// IPA transcriptions generated to match the format Kokoro was trained on.
+/// Dictionary lookup is the primary phonemization method for these languages;
+/// rule-based G2P in LatinPhonemizer/HindiPhonemizer serves as fallback for
+/// out-of-vocabulary words.
+enum PronunciationDicts {
+
+    // MARK: - French (163 entries)
+
+    static let fr: [String: String] = [
+        "aimer": "ɛmˈe", "aller": "alˈe", "ami": "amˈi", "an": "ˈɑ̃",
+        "année": "anˈe", "assez": "asˈe", "aussi": "osˈi", "autre": "ˈotʁ",
+        "autres": "ˈotʁ", "avec": "avˈɛk", "avoir": "avwˈaʁ", "beau": "bˈo",
+        "beaucoup": "bokˈu", "belle": "bˈɛl", "bien": "bjˈɛ̃", "blanc": "blˈɑ̃",
+        "bleu": "blˈø", "boire": "bwˈaʁ", "bon": "bˈɔ̃", "bonjour": "bɔ̃ʒˈuʁ",
+        "bonne": "bˈɔn", "bonsoir": "bɔ̃swˈaʁ", "bouche": "bˈuʃ", "bras": "bʁˈa",
+        "café": "kafˈe", "car": "kˈaʁ", "ce": "sˈə", "ceci": "səsˈi",
+        "cette": "sˈɛt", "chose": "ʃˈɔz", "coeur": "kˈœʁ", "combien": "kɔ̃bjˈɛ̃",
+        "comment": "kɔmˈɑ̃", "croire": "kʁwˈaʁ", "dans": "dˈɑ̃", "de": "dˈə",
+        "des": "dˈe", "dire": "dˈiʁ", "donc": "dˈɔ̃k", "donner": "dɔnˈe",
+        "dormir": "dɔʁmˈiʁ", "du": "dˈy", "eau": "ˈo", "elle": "ˈɛl",
+        "elles": "ˈɛl", "en": "ˈɑ̃", "encore": "ɑ̃kˈɔʁ", "enfant": "ɑ̃fˈɑ̃",
+        "est": "ˈɛ", "et": "ˈe", "faire": "fˈɛʁ", "fait": "fˈɛ",
+        "famille": "famˈij", "femme": "fˈam", "fille": "fˈij", "fils": "fˈil",
+        "frère": "fʁˈɛʁ", "grand": "ɡʁˈɑ̃", "grande": "ɡʁˈɑ̃d", "homme": "ˈɔm",
+        "ici": "isˈi", "il": "ˈil", "ils": "ˈil", "jamais": "ʒamˈɛ",
+        "jaune": "ʒˈon", "je": "ʒˈə", "jeune": "ʒˈøn", "jour": "ʒˈuʁ",
+        "la": "lˈa", "lait": "lˈɛ", "le": "lˈə", "les": "lˈe",
+        "leur": "lˈœʁ", "là": "lˈa", "ma": "mˈa", "main": "mˈɛ̃",
+        "mais": "mˈɛ", "maison": "mɛzˈɔ̃", "manger": "mɑ̃ʒˈe", "merci": "mɛʁsˈi",
+        "mes": "mˈe", "mettre": "mˈɛtʁ", "mon": "mˈɔ̃", "monde": "mˈɔ̃d",
+        "mère": "mˈɛʁ", "même": "mˈɛm", "ne": "nˈə", "ni": "nˈi",
+        "noir": "nwˈaʁ", "non": "nˈɔ̃", "notre": "nˈotʁ", "nous": "nˈu",
+        "nouveau": "nuvˈo", "nouvelle": "nuvˈɛl", "on": "ˈɔ̃", "or": "ˈɔʁ",
+        "ou": "ˈu", "oui": "wˈi", "où": "ˈu", "pain": "pˈɛ̃",
+        "par": "pˈaʁ", "pardon": "paʁdˈɔ̃", "parler": "paʁlˈe", "pas": "pˈa",
+        "pays": "pɛˈi", "penser": "pɑ̃sˈe", "petit": "pətˈi", "petite": "pətˈit",
+        "peu": "pˈø", "pied": "pjˈe", "plus": "plˈy", "pour": "pˈuʁ",
+        "pourquoi": "puʁkwˈa", "pouvoir": "puvwˈaʁ", "prendre": "pʁˈɑ̃dʁ",
+        "père": "pˈɛʁ", "quand": "kˈɑ̃", "que": "kˈə", "quel": "kˈɛl",
+        "quelle": "kˈɛl", "quelque": "kˈɛlkə", "qui": "kˈi", "rester": "ʁɛstˈe",
+        "rouge": "ʁˈuʒ", "rue": "ʁˈy", "sa": "sˈa", "salut": "salˈy",
+        "savoir": "savwˈaʁ", "se": "sˈə", "ses": "sˈe", "si": "sˈi",
+        "son": "sˈɔ̃", "sont": "sˈɔ̃", "sur": "sˈyʁ", "ta": "tˈa",
+        "temps": "tˈɑ̃", "tes": "tˈe", "test": "tˈɛst", "ton": "tˈɔ̃",
+        "tous": "tˈus", "tout": "tˈu", "toute": "tˈut", "toutes": "tˈut",
+        "travail": "tʁavˈaj", "trop": "tʁˈo", "trouver": "tʁuvˈe", "très": "tʁˈɛ",
+        "tu": "tˈy", "tête": "tˈɛt", "un": "ˈœ̃", "une": "ˈyn",
+        "venir": "vənˈiʁ", "vert": "vˈɛʁ", "vie": "vˈi", "ville": "vˈil",
+        "vin": "vˈɛ̃", "voir": "vwˈaʁ", "votre": "vˈotʁ", "vouloir": "vulwˈaʁ",
+        "vous": "vˈu", "yeux": "jˈø", "école": "ekˈɔl", "être": "ˈɛtʁ",
+    ]
+
+    // MARK: - Spanish (125 entries)
+
+    static let es: [String: String] = [
+        "adiós": "aðjˈos", "agua": "ˈaɣwa", "ahora": "aˈoɾa", "al": "ˈal",
+        "alto": "ˈalto", "amarillo": "ˌamaɾˈiʎo", "amigo": "amˈiɣo",
+        "antes": "ˈantes", "aquí": "akˈi", "azul": "aθˈul", "año": "ˈaɲo",
+        "bajo": "bˈaxo", "bien": "bjˈen", "blanco": "blˈanko", "boca": "bˈoka",
+        "brazo": "bɾˈaθo", "bueno": "bwˈeno", "buenos": "bwˈenos",
+        "cabeza": "kaβˈeθa", "café": "kafˈe", "calle": "kˈaʎe", "casa": "kˈasa",
+        "cinco": "θˈinko", "ciudad": "θjuðˈad", "comida": "komˈiða",
+        "como": "kˈomo", "con": "kˈon", "corazón": "kˌoɾaθˈon", "cosa": "kˈosa",
+        "cuando": "kwˈando", "cuatro": "kwˈatɾo", "dar": "dˈaɾ", "de": "dˈe",
+        "decir": "deθˈiɾ", "del": "dˈel", "desde": "dˈesðe", "después": "despwˈes",
+        "donde": "dˈonde", "dos": "dˈos", "día": "dˈia", "días": "dˈias",
+        "el": "ˈel", "ella": "ˈeʎa", "ellas": "ˈeʎas", "ellos": "ˈeʎos",
+        "en": "ˈen", "entre": "ˈɛntɾe", "eso": "ˈeso", "estar": "estˈaɾ",
+        "esto": "ˈesto", "familia": "famˈilja", "gracias": "ɡɾˈaθjas",
+        "grande": "ɡɾˈande", "haber": "aβˈeɾ", "hacer": "aθˈeɾ", "hasta": "ˈasta",
+        "hermana": "eɾmˈana", "hermano": "eɾmˈano", "hija": "ˈixa",
+        "hijo": "ˈixo", "hola": "ˈola", "hombre": "ˈombɾe", "ir": "ˈiɾ",
+        "joven": "xˈoβen", "la": "lˈa", "las": "lˈas", "leche": "lˈetʃe",
+        "llegar": "ʎeɣˈaɾ", "los": "lˈos", "madre": "mˈaðɾe", "malo": "mˈalo",
+        "mano": "mˈano", "mesa": "mˈesa", "mujer": "muxˈeɾ", "mundo": "mˈundo",
+        "muy": "mˈuj", "más": "mˈas", "negro": "nˈeɣɾo", "niña": "nˈiɲa",
+        "niño": "nˈiɲo", "no": "nˈo", "nosotros": "nosˈotɾos", "nuevo": "nwˈeβo",
+        "nunca": "nˈunka", "ojo": "ˈoxo", "padre": "pˈaðɾe", "pan": "pˈan",
+        "para": "pˈaɾa", "país": "paˈis", "pequeño": "pekˈeɲo",
+        "perdón": "peɾðˈon", "pero": "pˈeɾo", "pie": "pjˈe", "poder": "poðˈeɾ",
+        "por": "pˈoɾ", "porque": "pˈoɾke", "prueba": "pɾuˈeβa",
+        "puerta": "pwˈeɾta", "querer": "keɾˈeɾ", "qué": "kˈe", "rojo": "rˈoxo",
+        "saber": "saβˈeɾ", "ser": "sˈer", "siempre": "sjˈempɾe", "sin": "sˈin",
+        "sobre": "sˈoβɾe", "sí": "sˈi", "también": "tambjˈen", "tener": "tenˈeɾ",
+        "tiempo": "tjˈempo", "todo": "tˈoðo", "tres": "tɾˈes", "tú": "tˈu",
+        "un": "ˈun", "una": "ˈuna", "uno": "ˈuno", "usted": "ustˈed",
+        "ventana": "bentˈana", "ver": "bˈeɾ", "verde": "bˈeɾðe", "vida": "bˈiða",
+        "viejo": "bjˈexo", "vino": "bˈino", "yo": "ʝˈo", "él": "ˈel",
+    ]
+
+    // MARK: - Portuguese (115 entries)
+
+    static let pt: [String: String] = [
+        "a": "ˈa", "adeus": "ɐdˈeʊʃ", "agora": "ˌɐɡˈɔɾɐ", "alto": "ˈɑltʊ",
+        "amarelo": "ɐmɐɾˈɛlʊ", "amigo": "ɐmˈiɡʊ", "ano": "ˈɐ̃nʊ",
+        "antes": "ˈɐ̃ŋtɨʃ", "aqui": "ɐkˈi", "as": "ˈɐʃ", "até": "ɐtˈɛ",
+        "azul": "ɐzˈuw", "baixo": "bˈaɪʃʊ", "bem": "bˈeɪŋ", "boca": "bˈokɐ",
+        "bom": "bˈoŋ", "branco": "bɹˈɐ̃ŋkʊ", "cabeça": "kˌɐbˈesɐ",
+        "café": "kɐfˈɛ", "casa": "kˈazɐ", "chegar": "ʃɨɡˈaɹ",
+        "cidade": "sˌidˈadɨ", "cinco": "sˈiŋkʊ", "com": "kˈom", "como": "kˈomʊ",
+        "coração": "kˌuɾɐsˈɐ̃ʊ̃", "da": "dˈɐ", "dar": "dˈaɹ", "de": "dˈɨ",
+        "depois": "dɨpˈoɪʃ", "desde": "dˈeʒdɨ", "dia": "dˈiɐ", "dizer": "dizˈeɹ",
+        "do": "dˈʊ", "dois": "dˈoɪʃ", "ela": "ˈɛlɐ", "elas": "ˈelɐʃ",
+        "ele": "ˈelɨ", "eles": "ˈelɨʃ", "em": "ˈeɪŋ", "entre": "ˈeɪŋtɹɨ",
+        "estar": "ɨʃtˈɐɹ", "eu": "ˈeʊ", "família": "fɐmˈiljɐ",
+        "fazer": "fɐzˈeɹ", "filha": "fˈiʎɐ", "filho": "fˈiʎʊ",
+        "grande": "ɡɹˈɐ̃ŋdɨ", "homem": "ˈomeɪŋ", "ir": "ˈiɹ",
+        "irmão": "iɾəmˈɐ̃ʊ̃", "isso": "ˈisʊ", "isto": "ˈiʃtʊ",
+        "janela": "ʒɐnˈɛlɐ", "jovem": "ʒˈɔveɪŋ", "leite": "lˈeɪtɨ",
+        "mais": "mˈaɪʃ", "mas": "mˈɐʃ", "mesa": "mˈezɐ", "muito": "mwˈiŋtʊ",
+        "mulher": "muʎˈɛɹ", "mundo": "mˈũŋdʊ", "mãe": "mˈɐ̃j", "mão": "mˈɐ̃ʊ̃",
+        "na": "nˈɐ", "no": "nˈʊ", "novo": "nˈovʊ", "nunca": "nˈũŋkɐ",
+        "não": "nˈɐ̃ʊ̃", "nós": "nˈɔʃ", "o": "ˈɔ", "obrigado": "ˌɔbɹiɡˈadʊ",
+        "olho": "ˈɔʎʊ", "olá": "ɔlˈa", "onde": "ˈoŋdɨ", "os": "ˈʊʃ",
+        "pai": "pˈaɪ", "para": "pˈɐɾɐ", "país": "pɐˈiʃ", "pequeno": "pˌekˈenʊ",
+        "poder": "pudˈeɹ", "por": "pˈuɹ", "porque": "pˈoɾəkɨ",
+        "porta": "pˈɔɾətɐ", "preto": "pɹˈetʊ", "pão": "pˈɐ̃ʊ̃", "pé": "pˈɛ",
+        "quando": "kwˈɐ̃ŋdʊ", "quatro": "kwˈatɹʊ", "que": "kˈɨ",
+        "querer": "kɨɾˈeɹ", "rua": "ʁˈuɐ", "saber": "sɐbˈeɹ", "sem": "sˈeɪŋ",
+        "sempre": "sˈeɪmpɹɨ", "ser": "sˈɨɹ", "sim": "sˈiŋ", "sobre": "sˈobɹɨ",
+        "também": "tɐ̃mbˈeɪŋ", "tempo": "tˈeɪmpʊ", "ter": "tˈɨɹ",
+        "teste": "tˈɛʃtɨ", "todo": "tˈodʊ", "três": "tɹˈeʃ", "tu": "tˈu",
+        "um": "ˈũŋ", "uma": "ˈumɐ", "velho": "vˈɛʎʊ", "ver": "vˈeɹ",
+        "verde": "vˈeɾədɨ", "vermelho": "vˌeɾəmˈeʎʊ", "vida": "vˈidɐ",
+        "vinho": "vˈiɲʊ", "você": "vosˈe", "água": "ˈaɡwɐ",
+    ]
+
+    // MARK: - Hindi (60 entries)
+
+    static let hi: [String: String] = [
+        "अगर": "ˈʌɡəɾ", "अच्छा": "ˈʌcʰcʰaː", "आँख": "ˈaːnkʰ",
+        "आना": "ˈaːnaː", "आप": "ˈaːp", "एक": "ˈeːk", "और": "ˈɔːɾ",
+        "करना": "kˈʌɾnˌaː", "कहाँ": "kˈʌhã", "काला": "kˈaːlaː",
+        "कृपया": "kɾˈɪpjˌaː", "कैसे": "kˈɛːseː", "क्या": "kːjˈaː",
+        "खाना": "kʰˈaːnaː", "घर": "ɡʰˈʌɾ", "चाय": "cˈaːj", "चार": "cˈaːɾ",
+        "छोटा": "cʰˈoːʈaː", "जब": "ɟˈʌb", "जाना": "ɟˈaːnaː",
+        "तीन": "tˈiːn", "तुम": "tˈʊm", "तो": "tˈoː", "था": "tʰˈaː",
+        "थे": "tʰˈeː", "दिल": "dˈɪl", "दुनिया": "dˈʊnɪjˌaː",
+        "दूध": "dˈuːdʰ", "देना": "dˈeːnaː", "दो": "dˈoː", "दोस्त": "dˈoːst",
+        "धन्यवाद": "dʰˌənjəʋˈaːd", "नमस्ते": "nəmˈʌsteː", "नया": "nˈʌjaː",
+        "नीला": "nˈiːlaː", "परिवार": "pˌəɾɪʋˈaːɾ", "परीक्षा": "pəɾˈiːkʃaː",
+        "पानी": "pˈaːni", "पिता": "pˈɪtaː", "पीला": "pˈiːlaː", "पैर": "pˈɛːɾ",
+        "बड़ा": "bˈʌɾaː", "बहन": "bˈʌhən", "बेटा": "bˈeːʈaː",
+        "भाई": "bʰˈaːi", "माँ": "mˈã", "मैं": "mˈɛ̃", "यह": "jˈəh",
+        "या": "jˈaː", "लाल": "lˈaːl", "लेकिन": "lˈeːkɪn", "लेना": "lˈeːnaː",
+        "वह": "ʋˈəh", "वे": "ʋˈeː", "सिर": "sˈɪɾ", "हम": "hˈəm",
+        "हरा": "hˈʌɾaː", "हाथ": "hˈaːtʰ", "है": "hˈɛː", "हैं": "hˈɛ̃",
+    ]
+}
