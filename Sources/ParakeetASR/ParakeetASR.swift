@@ -13,8 +13,12 @@ public class ParakeetASRModel {
     /// Model configuration.
     public let config: ParakeetConfig
 
-    /// Default HuggingFace model ID (INT8 quantized encoder).
+    /// Default HuggingFace model ID (INT8 quantized encoder, 30s max).
     public static let defaultModelId = "aufklarer/Parakeet-TDT-v3-CoreML-INT8"
+
+    /// iOS-optimized model: single 500-frame shape (5s max), no EnumeratedShapes overhead.
+    /// Saves ~600MB runtime memory vs the default model.
+    public static let iosModelId = "aufklarer/Parakeet-TDT-v3-CoreML-INT8-iOS-5s"
 
     /// Whether the model is loaded and ready for inference.
     var _isLoaded = true
@@ -172,25 +176,36 @@ public class ParakeetASRModel {
     ///   - progressHandler: Optional callback for download/load progress `(fraction, status)`
     /// - Returns: Initialized model ready for transcription
     public static func fromPretrained(
-        modelId: String = defaultModelId,
+        modelId: String? = nil,
         progressHandler: ((Double, String) -> Void)? = nil
     ) async throws -> ParakeetASRModel {
-        AudioLog.modelLoading.info("Loading Parakeet model: \(modelId)")
+        let effectiveModelId: String
+        if let modelId {
+            effectiveModelId = modelId
+        } else {
+            #if os(iOS)
+            effectiveModelId = iosModelId
+            #else
+            effectiveModelId = defaultModelId
+            #endif
+        }
+
+        AudioLog.modelLoading.info("Loading Parakeet model: \(effectiveModelId)")
 
         // Step 1: Get/create cache directory
         let cacheDir: URL
         do {
-            cacheDir = try HuggingFaceDownloader.getCacheDirectory(for: modelId)
+            cacheDir = try HuggingFaceDownloader.getCacheDirectory(for: effectiveModelId)
         } catch {
             throw AudioModelError.modelLoadFailed(
-                modelId: modelId, reason: "Failed to resolve cache directory", underlying: error)
+                modelId: effectiveModelId, reason: "Failed to resolve cache directory", underlying: error)
         }
 
         // Step 2: Download model files (no preprocessor needed — mel is computed in Swift)
         progressHandler?(0.0, "Downloading model...")
         do {
             try await HuggingFaceDownloader.downloadWeights(
-                modelId: modelId,
+                modelId: effectiveModelId,
                 to: cacheDir,
                 additionalFiles: [
                     "encoder.mlmodelc/**",
@@ -204,7 +219,7 @@ public class ParakeetASRModel {
             }
         } catch {
             throw AudioModelError.modelLoadFailed(
-                modelId: modelId, reason: "Download failed", underlying: error)
+                modelId: effectiveModelId, reason: "Download failed", underlying: error)
         }
 
         // Step 3: Load config
@@ -229,7 +244,7 @@ public class ParakeetASRModel {
             AudioLog.modelLoading.debug("Loaded vocabulary: \(vocabulary.count) tokens")
         } catch {
             throw AudioModelError.modelLoadFailed(
-                modelId: modelId, reason: "Failed to load vocabulary", underlying: error)
+                modelId: effectiveModelId, reason: "Failed to load vocabulary", underlying: error)
         }
 
         // Step 5: Load CoreML models (encoder, decoder, joint — no preprocessor)

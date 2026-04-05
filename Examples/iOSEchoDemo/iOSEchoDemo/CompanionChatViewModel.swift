@@ -125,8 +125,7 @@ final class CompanionChatViewModel {
             loadingStatus = "Downloading ASR model..."
             loadProgress = 0.2
             sttModel = try await Task.detached {
-                try await ParakeetASRModel.fromPretrained(
-                    modelId: ParakeetASRModel.defaultModelId) { progress, status in
+                try await ParakeetASRModel.fromPretrained { progress, status in
                     DispatchQueue.main.async { [weak self] in
                         self?.loadProgress = 0.2 + progress * 0.4
                         if !status.isEmpty { self?.loadingStatus = "ASR: \(status)" }
@@ -173,7 +172,7 @@ final class CompanionChatViewModel {
         config.mode = .echo  // ASR → TTS, no LLM
         config.allowInterruptions = false  // No AEC — can't distinguish user from speaker
         config.minSilenceDuration = 0.6
-        config.maxUtteranceDuration = 5.0   // Force-submit to STT after 5s (longer causes OOM without ANE)
+        config.maxUtteranceDuration = 5.0   // Matches iOS Parakeet encoder (5s max, single fixed shape)
         config.maxResponseDuration = 5.0   // Cap TTS output to prevent repetition loops
         config.eagerSTT = true  // Start transcribing during speech, don't wait for silence
         config.warmupSTT = false
