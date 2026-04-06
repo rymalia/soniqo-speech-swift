@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct DictateHUDView: View {
-    @Bindable var viewModel: DictateViewModel
+    @ObservedObject var viewModel: DictateViewModel
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {

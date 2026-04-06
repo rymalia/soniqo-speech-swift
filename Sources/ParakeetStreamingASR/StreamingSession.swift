@@ -40,7 +40,6 @@ public class StreamingSession {
     private var segmentIndex: Int = 0
     private var eouDetected = false
     private var sampleBuffer: [Float] = []
-    // Silence tracking removed — model self-recovers after ~10-20s
 
     init(
         config: ParakeetEOUConfig,
@@ -180,9 +179,19 @@ public class StreamingSession {
 
     // MARK: - Internal
 
+    /// Whether to use running normalization (true for streaming, false for batch).
+    public var useRunningNormalization = true
+
+    /// Number of mel frames accumulated for running normalization.
+    public var melRunningCount: Int { melPreprocessor.runningCount }
+
     private func processChunk(_ audio: [Float]) throws -> ParakeetStreamingASRModel.PartialTranscript? {
-        // Extract mel spectrogram
-        let (rawMel, melLength) = try melPreprocessor.extract(audio)
+        let (rawMel, melLength): (MLMultiArray, Int)
+        if useRunningNormalization {
+            (rawMel, melLength) = try melPreprocessor.extractRaw(audio)
+        } else {
+            (rawMel, melLength) = try melPreprocessor.extract(audio)
+        }
         guard melLength > 0 else { return nil }
 
         // Truncate/pad mel to exact expected frame count (encoder has fixed input shape)

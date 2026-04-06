@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct DictateMenuView: View {
-    @Bindable var viewModel: DictateViewModel
+    @ObservedObject var viewModel: DictateViewModel
     @Environment(\.openWindow) private var openWindow
 
     var body: some View {
@@ -53,6 +53,25 @@ struct DictateMenuView: View {
 
                 if !viewModel.fullText.isEmpty {
                     Divider()
+
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 2) {
+                            ForEach(Array(viewModel.sentences.enumerated()), id: \.offset) { _, sentence in
+                                Text(sentence)
+                                    .font(.system(.body, design: .rounded))
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                            }
+                            if !viewModel.partialText.isEmpty {
+                                Text(viewModel.partialText)
+                                    .font(.system(.body, design: .rounded))
+                                    .foregroundStyle(.secondary)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                            }
+                        }
+                        .padding(.horizontal)
+                    }
+                    .frame(maxWidth: 320, maxHeight: 150)
+
                     HStack(spacing: 8) {
                         Button("Copy") { viewModel.copyToClipboard() }
                         Button("Paste") { viewModel.pasteToFrontApp() }
