@@ -150,7 +150,8 @@ final class DictateViewModel: ObservableObject {
     }
 
     func startRecording() {
-        guard let model, let vad else { return }
+        dlog("startRecording called, model=\(model != nil), vad=\(vad != nil)")
+        guard let model, let vad else { dlog("GUARD FAILED"); return }
         errorMessage = nil; partialText = ""; sentences.removeAll()
 
         do {
@@ -163,6 +164,8 @@ final class DictateViewModel: ObservableObject {
             let timer = DispatchSource.makeTimerSource(queue: processQueue)
             timer.schedule(deadline: .now(), repeating: .milliseconds(300))
             timer.setEventHandler { [weak self, proc] in
+                let count = proc.bufferedCount
+                if count > 0 { dlog("timer: \(count) buffered") }
                 let (partials, speaking) = proc.processBuffered()
                 DispatchQueue.main.async {
                     self?.isSpeechActive = speaking
