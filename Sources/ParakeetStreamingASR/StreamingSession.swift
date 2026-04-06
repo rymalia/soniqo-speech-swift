@@ -275,11 +275,8 @@ public class StreamingSession {
                 eouDetected: true,
                 segmentIndex: segmentIndex
             )
-            // Clear tokens for next utterance — encoder/decoder LSTM state persists
-            allTokens.removeAll()
-            allLogProbs.removeAll()
-            segmentIndex += 1
-            eouDetected = false
+            // Full reset for next utterance: caches + decoder + tokens
+            resetForNextUtterance()
             return partial
         }
 
@@ -290,6 +287,47 @@ public class StreamingSession {
             eouDetected: false,
             segmentIndex: segmentIndex
         )
+    }
+
+    /// Full reset after EOU: zero encoder caches, reset decoder LSTM, clear tokens.
+    /// This matches NeMo and FluidAudio behavior — each utterance starts fresh.
+    private func resetForNextUtterance() {
+        let layers = config.encoderLayers
+        let hidden = config.encoderHidden
+        let attCtx = config.attentionContext
+        let convCache = config.convCacheSize
+        let preCacheSize = config.streaming.preCacheSize
+
+        // Zero encoder caches
+        memset(preCache.dataPointer, 0,
+               config.numMelBins * preCacheSize * MemoryLayout<Float>.stride)
+        memset(cacheLastChannel.dataPointer, 0,
+               layers * attCtx * hidden * MemoryLayout<Float>.stride)
+        memset(cacheLastTime.dataPointer, 0,
+               layers * hidden * convCache * MemoryLayout<Float>.stride)
+        cacheLastChannelLen[0] = NSNumber(value: Int32(0))
+
+        // Reset decoder LSTM
+        memset(h.dataPointer, 0, config.decoderLayers * config.decoderHidden * MemoryLayout<Float16>.stride)
+        memset(c.dataPointer, 0, config.decoderLayers * config.decoderHidden * MemoryLayout<Float16>.stride)
+
+        // Re-prime decoder with blank token
+        let tokenPtr = tokenArray.dataPointer.assumingMemoryBound(to: Int32.self)
+        tokenPtr.pointee = Int32(config.blankTokenId)
+        decoderProvider.update("h", h)
+        decoderProvider.update("c", c)
+        if let initOut = try? decoder.prediction(from: decoderProvider) {
+            decoderOutput = initOut.featureValue(for: "decoder_output")!.multiArrayValue!
+            h = initOut.featureValue(for: "h_out")!.multiArrayValue!
+            c = initOut.featureValue(for: "c_out")!.multiArrayValue!
+        }
+
+        // Clear accumulated tokens
+        allTokens.removeAll()
+        allLogProbs.removeAll()
+        segmentIndex += 1
+        eouDetected = false
+        sampleBuffer.removeAll()
     }
 
     private func makeInt32Array(value: Int32) throws -> MLMultiArray {
