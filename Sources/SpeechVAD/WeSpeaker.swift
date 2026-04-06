@@ -97,6 +97,7 @@ public final class WeSpeakerModel {
     public static func fromPretrained(
         modelId: String? = nil,
         engine: WeSpeakerEngine = .mlx,
+        offlineMode: Bool = false,
         progressHandler: ((Double, String) -> Void)? = nil
     ) async throws -> WeSpeakerModel {
         let resolvedModelId = modelId ?? (engine == .coreml ? defaultCoreMLModelId : defaultModelId)
@@ -110,6 +111,7 @@ public final class WeSpeakerModel {
             try await HuggingFaceDownloader.downloadWeights(
                 modelId: resolvedModelId,
                 to: cacheDir,
+                offlineMode: offlineMode,
                 progressHandler: { progress in
                     progressHandler?(progress * 0.8, "Downloading weights...")
                 }
@@ -129,6 +131,7 @@ public final class WeSpeakerModel {
                 modelId: resolvedModelId,
                 to: cacheDir,
                 additionalFiles: ["wespeaker.mlmodelc/**", "config.json"],
+                offlineMode: offlineMode,
                 progressHandler: { progress in
                     progressHandler?(progress * 0.8, "Downloading CoreML model...")
                 }

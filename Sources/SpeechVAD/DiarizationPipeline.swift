@@ -116,6 +116,7 @@ public final class PyannoteDiarizationPipeline {
         embModelId: String? = nil,
         embeddingEngine: WeSpeakerEngine = .mlx,
         useVADFilter: Bool = false,
+        offlineMode: Bool = false,
         progressHandler: ((Double, String) -> Void)? = nil
     ) async throws -> PyannoteDiarizationPipeline {
         progressHandler?(0.0, "Downloading segmentation model...")
@@ -125,6 +126,7 @@ public final class PyannoteDiarizationPipeline {
         try await HuggingFaceDownloader.downloadWeights(
             modelId: segModelId,
             to: segCacheDir,
+            offlineMode: offlineMode,
             progressHandler: { progress in
                 progressHandler?(progress * 0.3, "Downloading segmentation weights...")
             }
@@ -140,6 +142,7 @@ public final class PyannoteDiarizationPipeline {
         let embModel = try await WeSpeakerModel.fromPretrained(
             modelId: embModelId,
             engine: embeddingEngine,
+            offlineMode: offlineMode,
             progressHandler: { progress, status in
                 progressHandler?(0.3 + progress * 0.4, status)
             }
@@ -151,6 +154,7 @@ public final class PyannoteDiarizationPipeline {
             progressHandler?(0.7, "Downloading VAD filter model...")
             vadModel = try await SileroVADModel.fromPretrained(
                 engine: .mlx,
+                offlineMode: offlineMode,
                 progressHandler: { progress, status in
                     progressHandler?(0.7 + progress * 0.25, status)
                 }

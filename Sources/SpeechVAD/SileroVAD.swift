@@ -229,6 +229,7 @@ public final class SileroVADModel {
     public static func fromPretrained(
         modelId: String? = nil,
         engine: SileroVADEngine = .mlx,
+        offlineMode: Bool = false,
         progressHandler: ((Double, String) -> Void)? = nil
     ) async throws -> SileroVADModel {
         let resolvedModelId = modelId ?? (engine == .coreml ? defaultCoreMLModelId : defaultModelId)
@@ -242,6 +243,7 @@ public final class SileroVADModel {
             try await HuggingFaceDownloader.downloadWeights(
                 modelId: resolvedModelId,
                 to: cacheDir,
+                offlineMode: offlineMode,
                 progressHandler: { progress in
                     progressHandler?(progress * 0.8, "Downloading weights...")
                 }
@@ -261,6 +263,7 @@ public final class SileroVADModel {
                 modelId: resolvedModelId,
                 to: cacheDir,
                 additionalFiles: ["silero_vad.mlmodelc/**", "config.json"],
+                offlineMode: offlineMode,
                 progressHandler: { progress in
                     progressHandler?(progress * 0.8, "Downloading CoreML model...")
                 }

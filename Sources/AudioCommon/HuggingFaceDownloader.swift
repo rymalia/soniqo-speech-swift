@@ -77,8 +77,15 @@ public enum HuggingFaceDownloader {
         modelId: String,
         to directory: URL,
         additionalFiles: [String] = [],
+        offlineMode: Bool = false,
         progressHandler: ((Double) -> Void)? = nil
     ) async throws {
+        // Skip network requests when weights are already cached
+        if offlineMode && weightsExist(in: directory) {
+            progressHandler?(1.0)
+            return
+        }
+
         var globs: [String] = ["config.json"]
 
         let hasExplicitWeights = additionalFiles.contains { $0.hasSuffix(".safetensors") }
