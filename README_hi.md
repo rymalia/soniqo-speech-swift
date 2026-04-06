@@ -1147,11 +1147,26 @@ Qwen3-ASR 1.7B 8-bit तुलनीय आकार में Whisper Large v3 
 
 ## कैश कॉन्फ़िगरेशन
 
-मॉडल वेट लोकली कैश होते हैं। कैश स्थान बदलने के लिए:
+मॉडल वेट `~/Library/Caches/qwen3-speech/` में लोकली कैश होते हैं।
+
+**CLI** — एनवायरनमेंट वेरिएबल से ओवरराइड करें:
 
 ```bash
 export QWEN3_CACHE_DIR=/path/to/cache
 ```
+
+**Swift API** — सभी `fromPretrained()` मेथड `cacheDir` और `offlineMode` सपोर्ट करते हैं:
+
+```swift
+// कस्टम कैश डायरेक्टरी (सैंडबॉक्स ऐप्स, iOS कंटेनर)
+let model = try await ParakeetASRModel.fromPretrained(
+    cacheDir: myAppModelsDir)
+
+// ऑफलाइन मोड — वेट कैश होने पर नेटवर्क स्किप करें
+let model = try await KokoroTTSModel.fromPretrained(offlineMode: true)
+```
+
+विवरण के लिए [docs/inference/cache-and-offline.md](docs/inference/cache-and-offline.md) देखें।
 
 ## MLX Metal लाइब्रेरी
 

@@ -1147,11 +1147,26 @@ Qwen3-ASR 1.7B 8-bitは同等サイズでWhisper Large v3 Turbo (2.5%) を超え
 
 ## キャッシュ設定
 
-モデルの重みはローカルにキャッシュされます。キャッシュの保存先を変更するには：
+モデルの重みは `~/Library/Caches/qwen3-speech/` にローカルキャッシュされます。
+
+**CLI** — 環境変数でオーバーライド：
 
 ```bash
 export QWEN3_CACHE_DIR=/path/to/cache
 ```
+
+**Swift API** — すべての `fromPretrained()` メソッドが `cacheDir` と `offlineMode` をサポート：
+
+```swift
+// カスタムキャッシュディレクトリ（サンドボックスアプリ、iOSコンテナ）
+let model = try await ParakeetASRModel.fromPretrained(
+    cacheDir: myAppModelsDir)
+
+// オフラインモード — 重みがキャッシュ済みの場合ネットワークをスキップ
+let model = try await KokoroTTSModel.fromPretrained(offlineMode: true)
+```
+
+詳細は [docs/inference/cache-and-offline.md](docs/inference/cache-and-offline.md) を参照。
 
 ## MLX Metalライブラリ
 

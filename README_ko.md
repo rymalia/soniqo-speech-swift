@@ -1147,11 +1147,26 @@ Qwen3-ASR 1.7B 8-bit는 비슷한 크기에서 Whisper Large v3 Turbo (2.5%)를 
 
 ## 캐시 설정
 
-모델 가중치는 로컬에 캐시됩니다. 캐시 위치를 변경하려면:
+모델 가중치는 `~/Library/Caches/qwen3-speech/`에 로컬 캐시됩니다.
+
+**CLI** — 환경 변수로 오버라이드:
 
 ```bash
 export QWEN3_CACHE_DIR=/path/to/cache
 ```
+
+**Swift API** — 모든 `fromPretrained()` 메서드가 `cacheDir` 및 `offlineMode` 지원:
+
+```swift
+// 커스텀 캐시 디렉터리 (샌드박스 앱, iOS 컨테이너)
+let model = try await ParakeetASRModel.fromPretrained(
+    cacheDir: myAppModelsDir)
+
+// 오프라인 모드 — 가중치가 캐시된 경우 네트워크 건너뛰기
+let model = try await KokoroTTSModel.fromPretrained(offlineMode: true)
+```
+
+자세한 내용은 [docs/inference/cache-and-offline.md](docs/inference/cache-and-offline.md) 참조.
 
 ## MLX Metal 라이브러리
 

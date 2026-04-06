@@ -1147,11 +1147,26 @@ Qwen3-ASR 1.7B 8-bit supera a Whisper Large v3 Turbo (2.5%) con un tamaño compa
 
 ## Configuración de caché
 
-Los pesos de los modelos se almacenan en caché localmente. Puedes cambiar la ubicación de la caché con:
+Los pesos de los modelos se almacenan en caché en `~/Library/Caches/qwen3-speech/`.
+
+**CLI** — cambiar la ubicación con una variable de entorno:
 
 ```bash
 export QWEN3_CACHE_DIR=/path/to/cache
 ```
+
+**Swift API** — todos los métodos `fromPretrained()` aceptan `cacheDir` y `offlineMode`:
+
+```swift
+// Directorio de caché personalizado (apps en sandbox, contenedores iOS)
+let model = try await ParakeetASRModel.fromPretrained(
+    cacheDir: myAppModelsDir)
+
+// Modo offline — omitir red cuando los pesos ya están en caché
+let model = try await KokoroTTSModel.fromPretrained(offlineMode: true)
+```
+
+Ver [docs/inference/cache-and-offline.md](docs/inference/cache-and-offline.md) para más detalles.
 
 ## Biblioteca Metal de MLX
 

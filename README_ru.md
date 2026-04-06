@@ -1147,11 +1147,26 @@ Qwen3-ASR 1.7B 8-bit превосходит Whisper Large v3 Turbo (2.5%) при
 
 ## Настройка кеша
 
-Веса моделей кешируются локально. Изменить путь к кешу можно так:
+Веса моделей кешируются локально в `~/Library/Caches/qwen3-speech/`.
+
+**CLI** — переопределить через переменную окружения:
 
 ```bash
 export QWEN3_CACHE_DIR=/path/to/cache
 ```
+
+**Swift API** — все методы `fromPretrained()` поддерживают `cacheDir` и `offlineMode`:
+
+```swift
+// Пользовательский каталог кеша (sandbox-приложения, iOS-контейнеры)
+let model = try await ParakeetASRModel.fromPretrained(
+    cacheDir: myAppModelsDir)
+
+// Офлайн-режим — пропустить сеть, если веса уже в кеше
+let model = try await KokoroTTSModel.fromPretrained(offlineMode: true)
+```
+
+Подробнее в [docs/inference/cache-and-offline.md](docs/inference/cache-and-offline.md).
 
 ## Библиотека MLX Metal
 
