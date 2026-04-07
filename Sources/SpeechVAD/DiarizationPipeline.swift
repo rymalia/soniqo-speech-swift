@@ -189,11 +189,38 @@ public final class PyannoteDiarizationPipeline {
         sampleRate: Int,
         config: DiarizationConfig = .default
     ) -> DiarizationResult {
+        diarize(audio: audio, sampleRate: sampleRate, config: config, progressHandler: nil)
+    }
+
+    /// Diarize audio with progress reporting and optional cancellation.
+    ///
+    /// Same as `diarize(audio:sampleRate:config:)` but reports progress during
+    /// the two most expensive stages (segmentation and embedding extraction).
+    /// The handler returns a `Bool`: `true` to continue, `false` to cancel.
+    /// When cancelled, an empty `DiarizationResult` is returned immediately.
+    ///
+    /// - Parameters:
+    ///   - audio: PCM Float32 audio samples
+    ///   - sampleRate: sample rate of the input audio
+    ///   - config: diarization configuration
+    ///   - progressHandler: called with (progress 0.0–1.0, stage description);
+    ///     return `true` to continue or `false` to cancel
+    /// - Returns: diarization result with speaker-labeled segments
+    public func diarize(
+        audio: [Float],
+        sampleRate: Int,
+        config: DiarizationConfig = .default,
+        progressHandler: ((Float, String) -> Bool)?
+    ) -> DiarizationResult {
+        let emptyResult = DiarizationResult(segments: [], numSpeakers: 0, speakerEmbeddings: [])
         let samples = DiarizationHelpers.resample(audio, from: sampleRate, to: segConfig.sampleRate)
 
         // Stage 0 (optional): VAD pre-filter — mask non-speech to reduce false alarms
         let speechMask: [SpeechSegment]?
         if let vadModel {
+            if progressHandler?(0, "VAD pre-filtering") == false {
+                return emptyResult
+            }
             speechMask = vadModel.detectSpeech(
                 audio: samples, sampleRate: segConfig.sampleRate)
         } else {
@@ -201,12 +228,13 @@ public final class PyannoteDiarizationPipeline {
         }
 
         if let speechMask, speechMask.isEmpty {
-            return DiarizationResult(segments: [], numSpeakers: 0, speakerEmbeddings: [])
+            return emptyResult
         }
 
         // Run embedding-clustered diarization pipeline
         return runEmbeddingClusteredDiarization(
-            samples: samples, config: config, speechMask: speechMask)
+            samples: samples, config: config, speechMask: speechMask,
+            progressHandler: progressHandler)
     }
 
     /// Extract segments of a target speaker from audio.
@@ -273,7 +301,8 @@ public final class PyannoteDiarizationPipeline {
     private func runEmbeddingClusteredDiarization(
         samples: [Float],
         config: DiarizationConfig,
-        speechMask: [SpeechSegment]?
+        speechMask: [SpeechSegment]?,
+        progressHandler: ((Float, String) -> Bool)? = nil
     ) -> DiarizationResult {
         let windowDuration: Float = 10.0
         let sampleRate = segConfig.sampleRate
@@ -303,9 +332,19 @@ public final class PyannoteDiarizationPipeline {
         }
 
         // Step 1: Run segmentation on all windows, collect probability tracks
+        // Progress: both steps iterate over all windows, so total = 2 * windowCount
+        let totalUnits = positions.count * 2
+        var completedUnits = 0
         var windowProbs = [WindowProbs]()
 
-        for (start, end) in positions {
+        let emptyResult = DiarizationResult(segments: [], numSpeakers: 0, speakerEmbeddings: [])
+
+        for (posIdx, (start, end)) in positions.enumerated() {
+            completedUnits += 1
+            if progressHandler?(Float(completedUnits) / Float(totalUnits), "Segmenting \(posIdx + 1)/\(positions.count)") == false {
+                return emptyResult
+            }
+
             var window = Array(samples[start..<end])
             if window.count < windowSamples {
                 window.append(contentsOf: [Float](repeating: 0, count: windowSamples - window.count))
@@ -332,6 +371,11 @@ public final class PyannoteDiarizationPipeline {
         var windowEmbeddings = [WindowSpeakerEmbedding]()
 
         for (wIdx, wp) in windowProbs.enumerated() {
+            completedUnits += 1
+            if progressHandler?(Float(completedUnits) / Float(totalUnits), "Embedding \(wIdx + 1)/\(windowProbs.count)") == false {
+                return emptyResult
+            }
+
             let windowStartSample = wp.startSample
 
             for localSpk in 0..<3 {

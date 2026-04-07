@@ -129,6 +129,28 @@ public final class SortformerDiarizer {
         sampleRate: Int,
         config: DiarizationConfig = .default
     ) -> DiarizationResult {
+        diarize(audio: audio, sampleRate: sampleRate, config: config, progressHandler: nil)
+    }
+
+    /// Run speaker diarization with progress reporting and optional cancellation.
+    ///
+    /// Same as `diarize(audio:sampleRate:config:)` but reports progress per chunk.
+    /// The handler returns a `Bool`: `true` to continue, `false` to cancel.
+    /// When cancelled, an empty `DiarizationResult` is returned immediately.
+    ///
+    /// - Parameters:
+    ///   - audio: PCM Float32 audio samples
+    ///   - sampleRate: sample rate of the input audio
+    ///   - config: optional override for diarization thresholds
+    ///   - progressHandler: called with (progress 0.0–1.0, stage description);
+    ///     return `true` to continue or `false` to cancel
+    /// - Returns: diarization result with speaker-labeled segments
+    public func diarize(
+        audio: [Float],
+        sampleRate: Int,
+        config: DiarizationConfig = .default,
+        progressHandler: ((Float, String) -> Bool)?
+    ) -> DiarizationResult {
         let samples = DiarizationHelpers.resample(audio, from: sampleRate, to: self.config.sampleRate)
 
         guard !samples.isEmpty else {
@@ -156,11 +178,20 @@ public final class SortformerDiarizer {
 
         // Collect core predictions from each chunk
         var allChunkProbs = [[Float]]()  // Each entry: [coreFrames * numSpeakers]
+        let emptyResult = DiarizationResult(segments: [], numSpeakers: 0, speakerEmbeddings: [])
+
+        // Calculate total chunks for progress reporting
+        let totalChunks = max(1, (totalMelFrames + coreMelFrames - 1) / coreMelFrames)
+        var chunkIndex = 0
 
         var sttFeat = 0
         var endFeat = 0
 
         while endFeat < totalMelFrames {
+            chunkIndex += 1
+            if progressHandler?(Float(chunkIndex) / Float(totalChunks), "Diarizing \(chunkIndex)/\(totalChunks)") == false {
+                return emptyResult
+            }
             let leftOffset = min(leftCtx * subFactor, sttFeat)
             endFeat = min(sttFeat + coreMelFrames, totalMelFrames)
             let rightOffset = min(rightCtx * subFactor, totalMelFrames - endFeat)

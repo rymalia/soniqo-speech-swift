@@ -115,6 +115,29 @@ for seg in result.segments {
 print("\(result.numSpeakers) speakers detected")
 ```
 
+#### Progress Reporting & Cancellation
+
+For long audio files, use the `progressHandler` overload to track progress.
+The handler returns a `Bool`: `true` to continue, `false` to cancel immediately.
+
+```swift
+// Progress only (never cancel)
+let result = pipeline.diarize(audio: samples, sampleRate: 16000) { progress, stage in
+    print("[\(Int(progress * 100))%] \(stage)")
+    return true
+}
+
+// With cancellation support
+let result = pipeline.diarize(audio: samples, sampleRate: 16000) { progress, stage in
+    print("[\(Int(progress * 100))%] \(stage)")
+    return !isCancelled  // return false to stop early
+}
+```
+
+When the handler returns `false`, `diarize()` stops at the next window boundary and returns an empty `DiarizationResult`. The worst-case cancellation latency is one window's inference time (~50–200ms on Apple Silicon).
+
+Progress is based on completed work units (segmentation windows + embedding windows). The `stage` string indicates the current processing step (e.g. "Segmenting 5/12", "Embedding 3/12").
+
 ### Speaker Embedding
 
 ```swift
@@ -150,6 +173,15 @@ for seg in result.segments {
     print("Speaker \(seg.speakerId): [\(seg.startTime)s - \(seg.endTime)s]")
 }
 // result.speakerEmbeddings is empty (end-to-end model)
+```
+
+Sortformer also supports the same `progressHandler` pattern as Pyannote for progress reporting and cancellation:
+
+```swift
+let result = diarizer.diarize(audio: samples, sampleRate: 16000) { progress, stage in
+    print("[\(Int(progress * 100))%] \(stage)")
+    return !isCancelled  // return false to stop early
+}
 ```
 
 ### CLI Commands
