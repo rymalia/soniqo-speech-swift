@@ -2,6 +2,7 @@ import Foundation
 import MLX
 import MLXNN
 import MLXFast
+import MLXCommon
 
 /// Pre-norm wav2vec2 transformer encoder layer.
 ///
@@ -60,23 +61,13 @@ public class Wav2Vec2SelfAttention: Module {
     }
 
     public func callAsFunction(_ x: MLXArray) -> MLXArray {
-        let batch = x.dim(0)
-        let seqLen = x.dim(1)
-
-        var q = qProj(x)
-        var k = kProj(x)
-        var v = vProj(x)
-
-        // Reshape [B, T, dim] → [B, H, T, headDim]
-        q = q.reshaped(batch, seqLen, numHeads, headDim).transposed(0, 2, 1, 3)
-        k = k.reshaped(batch, seqLen, numHeads, headDim).transposed(0, 2, 1, 3)
-        v = v.reshaped(batch, seqLen, numHeads, headDim).transposed(0, 2, 1, 3)
-
-        let attn = MLXFast.scaledDotProductAttention(
-            queries: q, keys: k, values: v, scale: scale, mask: nil)
-
-        // [B, H, T, headDim] → [B, T, dim]
-        let merged = attn.transposed(0, 2, 1, 3).reshaped(batch, seqLen, numHeads * headDim)
+        let q = qProj(x)
+        let k = kProj(x)
+        let v = vProj(x)
+        let merged = SDPA.multiHead(
+            q: q, k: k, v: v,
+            numHeads: numHeads, headDim: headDim, scale: scale,
+            mask: nil)
         return outputProj(merged)
     }
 }
