@@ -46,6 +46,7 @@ Siehe [Roadmap-Diskussion](https://github.com/soniqo/speech-swift/discussions/81
 | Qwen3-ASR-0.6B | Sprache → Text | Nein | 52 Sprachen | [4-bit](https://huggingface.co/aufklarer/Qwen3-ASR-0.6B-MLX-4bit) 680 MB · [8-bit](https://huggingface.co/aufklarer/Qwen3-ASR-0.6B-MLX-8bit) 1.0 GB · [CoreML](https://huggingface.co/aufklarer/Qwen3-ASR-CoreML) 180 MB |
 | Qwen3-ASR-1.7B | Sprache → Text | Nein | 52 Sprachen | [4-bit](https://huggingface.co/aufklarer/Qwen3-ASR-1.7B-MLX-4bit) 2.1 GB · [8-bit](https://huggingface.co/aufklarer/Qwen3-ASR-1.7B-MLX-8bit) 3.2 GB |
 | Parakeet-TDT-0.6B | Sprache → Text | Nein | 25 europäische Sprachen | [CoreML INT8](https://huggingface.co/aufklarer/Parakeet-TDT-v3-CoreML-INT8) 500 MB |
+| Parakeet-EOU-120M | Sprache → Text | Ja (Streaming + EOU) | 25 europäische Sprachen | [CoreML INT8](https://huggingface.co/aufklarer/Parakeet-EOU-120M-CoreML-INT8) ~120 MB |
 | Qwen3-ForcedAligner-0.6B | Audio + Text → Zeitstempel | Nein | Mehrsprachig | [4-bit](https://huggingface.co/aufklarer/Qwen3-ForcedAligner-0.6B-4bit) 979 MB · [8-bit](https://huggingface.co/aufklarer/Qwen3-ForcedAligner-0.6B-8bit) 1.4 GB · [CoreML INT4](https://huggingface.co/aufklarer/Qwen3-ForcedAligner-0.6B-CoreML-INT4) 630 MB · [CoreML INT8](https://huggingface.co/aufklarer/Qwen3-ForcedAligner-0.6B-CoreML-INT8) 1.0 GB |
 | Qwen3-TTS-0.6B Base | Text → Sprache | Ja (~120ms) | 10 Sprachen | [4-bit](https://huggingface.co/aufklarer/Qwen3-TTS-12Hz-0.6B-Base-MLX-4bit) 1.7 GB · [8-bit](https://huggingface.co/aufklarer/Qwen3-TTS-12Hz-0.6B-Base-MLX-8bit) 2.4 GB · [CoreML](https://huggingface.co/aufklarer/Qwen3-TTS-CoreML) 1.0 GB |
 | Qwen3-TTS-0.6B CustomVoice | Text → Sprache | Ja (~120ms) | 10 Sprachen | [4-bit](https://huggingface.co/aufklarer/Qwen3-TTS-12Hz-0.6B-CustomVoice-MLX-4bit) 1.7 GB |
@@ -72,6 +73,7 @@ Gewichtsspeicher ist der GPU- (MLX) oder ANE-Speicher (CoreML), der von Modellpa
 | Qwen3-ASR-0.6B (INT8, CoreML) | 180 MB | ~400 MB |
 | Qwen3-ASR-1.7B (8-bit, MLX) | 2,349 MB | ~4 GB |
 | Parakeet-TDT-0.6B (CoreML) | 315 MB | ~400 MB |
+| Parakeet-EOU-120M (CoreML) | ~120 MB | ~200 MB |
 | Qwen3-ForcedAligner-0.6B (4-bit, MLX) | 933 MB | ~1.5 GB |
 | Qwen3-TTS-1.7B (4-bit, MLX) | 2,300 MB | ~4–6 GB |
 | Qwen3-TTS-0.6B (4-bit, MLX) | 977 MB | ~2 GB |
@@ -175,6 +177,7 @@ cd Examples/PersonaPlexDemo
 
 ## Demo-Apps
 
+- **[DictateDemo](Examples/DictateDemo/)** ([Doku](https://soniqo.audio/guides/dictate/)) — macOS-Menueleisten-Streaming-Diktat mit Live-Teilergebnissen, VAD-gesteuerter Satzende-Erkennung und Ein-Klick-Kopieren. Laeuft als Hintergrund-Menueleisten-Agent (Parakeet-EOU-120M + Silero VAD).
 - **[iOSEchoDemo](Examples/iOSEchoDemo/)** — iOS-Echo-Demo (Parakeet ASR + Kokoro TTS, sprechen und zurückhören). Gerät und Simulator.
 - **[PersonaPlexDemo](Examples/PersonaPlexDemo/)** — Konversationeller Sprachassistent (Mikrofoneingabe, VAD, Mehrrunden). macOS.
 - **[SpeechDemo](Examples/SpeechDemo/)** — Diktat und Sprachsynthese in einer Tab-Oberfläche. macOS.
@@ -1137,9 +1140,9 @@ Qwen3-ASR 1.7B 8-bit übertrifft Whisper Large v3 Turbo (2,5%) bei vergleichbare
 
 ## Architektur
 
-**Modelle:** [ASR-Modell](docs/models/asr-model.md), [TTS-Modell](docs/models/tts-model.md), [CosyVoice TTS](docs/models/cosyvoice-tts.md), [Kokoro TTS](docs/models/kokoro-tts.md), [Parakeet TDT](docs/models/parakeet-asr.md), [PersonaPlex](docs/models/personaplex.md), [FireRedVAD](docs/models/fireredvad.md)
+**Modelle:** [ASR-Modell](docs/models/asr-model.md), [TTS-Modell](docs/models/tts-model.md), [CosyVoice TTS](docs/models/cosyvoice-tts.md), [Kokoro TTS](docs/models/kokoro-tts.md), [Parakeet TDT](docs/models/parakeet-asr.md), [Parakeet Streaming](docs/models/parakeet-streaming-asr.md), [PersonaPlex](docs/models/personaplex.md), [FireRedVAD](docs/models/fireredvad.md)
 
-**Inferenz:** [ASR-Inferenz](docs/inference/qwen3-asr-inference.md), [TTS-Inferenz](docs/inference/qwen3-tts-inference.md), [Forced Aligner](docs/inference/forced-aligner.md), [FireRedVAD](docs/inference/fireredvad.md), [Silero VAD](docs/inference/silero-vad.md), [Sprecherdiarisierung](docs/inference/speaker-diarization.md), [Sprachverbesserung](docs/inference/speech-enhancement.md), [Audio-Wiedergabe](docs/audio/playback.md)
+**Inferenz:** [ASR-Inferenz](docs/inference/qwen3-asr-inference.md), [Parakeet TDT](docs/inference/parakeet-asr-inference.md), [Parakeet Streaming](docs/inference/parakeet-streaming-asr-inference.md), [TTS-Inferenz](docs/inference/qwen3-tts-inference.md), [Forced Aligner](docs/inference/forced-aligner.md), [FireRedVAD](docs/inference/fireredvad.md), [Silero VAD](docs/inference/silero-vad.md), [Sprecherdiarisierung](docs/inference/speaker-diarization.md), [Sprachverbesserung](docs/inference/speech-enhancement.md), [Audio-Wiedergabe](docs/audio/playback.md)
 
 **Benchmarks:** [ASR WER](docs/benchmarks/asr-wer.md), [TTS Round-Trip](docs/benchmarks/tts-roundtrip.md), [VAD-Erkennung](docs/benchmarks/vad-detection.md)
 

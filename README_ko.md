@@ -46,6 +46,7 @@ Mac과 iOS를 위한 온디바이스 음성 인식, 합성 및 이해. Apple Sil
 | Qwen3-ASR-0.6B | 음성 → 텍스트 | 아니오 | 52개 언어 | [4-bit](https://huggingface.co/aufklarer/Qwen3-ASR-0.6B-MLX-4bit) 680 MB · [8-bit](https://huggingface.co/aufklarer/Qwen3-ASR-0.6B-MLX-8bit) 1.0 GB · [CoreML](https://huggingface.co/aufklarer/Qwen3-ASR-CoreML) 180 MB |
 | Qwen3-ASR-1.7B | 음성 → 텍스트 | 아니오 | 52개 언어 | [4-bit](https://huggingface.co/aufklarer/Qwen3-ASR-1.7B-MLX-4bit) 2.1 GB · [8-bit](https://huggingface.co/aufklarer/Qwen3-ASR-1.7B-MLX-8bit) 3.2 GB |
 | Parakeet-TDT-0.6B | 음성 → 텍스트 | 아니오 | 25개 유럽 언어 | [CoreML INT8](https://huggingface.co/aufklarer/Parakeet-TDT-v3-CoreML-INT8) 500 MB |
+| Parakeet-EOU-120M | 음성 → 텍스트 | 예 (스트리밍 + EOU) | 25개 유럽 언어 | [CoreML INT8](https://huggingface.co/aufklarer/Parakeet-EOU-120M-CoreML-INT8) ~120 MB |
 | Qwen3-ForcedAligner-0.6B | 오디오 + 텍스트 → 타임스탬프 | 아니오 | 다국어 | [4-bit](https://huggingface.co/aufklarer/Qwen3-ForcedAligner-0.6B-4bit) 979 MB · [8-bit](https://huggingface.co/aufklarer/Qwen3-ForcedAligner-0.6B-8bit) 1.4 GB · [CoreML INT4](https://huggingface.co/aufklarer/Qwen3-ForcedAligner-0.6B-CoreML-INT4) 630 MB · [CoreML INT8](https://huggingface.co/aufklarer/Qwen3-ForcedAligner-0.6B-CoreML-INT8) 1.0 GB |
 | Qwen3-TTS-0.6B Base | 텍스트 → 음성 | 예 (~120ms) | 10개 언어 | [4-bit](https://huggingface.co/aufklarer/Qwen3-TTS-12Hz-0.6B-Base-MLX-4bit) 1.7 GB · [8-bit](https://huggingface.co/aufklarer/Qwen3-TTS-12Hz-0.6B-Base-MLX-8bit) 2.4 GB · [CoreML](https://huggingface.co/aufklarer/Qwen3-TTS-CoreML) 1.0 GB |
 | Qwen3-TTS-0.6B CustomVoice | 텍스트 → 음성 | 예 (~120ms) | 10개 언어 | [4-bit](https://huggingface.co/aufklarer/Qwen3-TTS-12Hz-0.6B-CustomVoice-MLX-4bit) 1.7 GB |
@@ -72,6 +73,7 @@ Mac과 iOS를 위한 온디바이스 음성 인식, 합성 및 이해. Apple Sil
 | Qwen3-ASR-0.6B (INT8, CoreML) | 180 MB | ~400 MB |
 | Qwen3-ASR-1.7B (8-bit, MLX) | 2,349 MB | ~4 GB |
 | Parakeet-TDT-0.6B (CoreML) | 315 MB | ~400 MB |
+| Parakeet-EOU-120M (CoreML) | ~120 MB | ~200 MB |
 | Qwen3-ForcedAligner-0.6B (4-bit, MLX) | 933 MB | ~1.5 GB |
 | Qwen3-TTS-1.7B (4-bit, MLX) | 2,300 MB | ~4–6 GB |
 | Qwen3-TTS-0.6B (4-bit, MLX) | 977 MB | ~2 GB |
@@ -175,6 +177,7 @@ cd Examples/PersonaPlexDemo
 
 ## 데모 앱
 
+- **[DictateDemo](Examples/DictateDemo/)** ([문서](https://soniqo.audio/guides/dictate/)) — macOS 메뉴 바 스트리밍 받아쓰기. 실시간 부분 결과, VAD 기반 발화 종료 감지, 원클릭 복사. 백그라운드 메뉴 바 에이전트로 실행 (Parakeet-EOU-120M + Silero VAD).
 - **[iOSEchoDemo](Examples/iOSEchoDemo/)** — iOS 에코 데모 (Parakeet ASR + Kokoro TTS, 말하고 다시 듣기). 디바이스 및 시뮬레이터 지원.
 - **[PersonaPlexDemo](Examples/PersonaPlexDemo/)** — 대화형 음성 어시스턴트 (마이크 입력, VAD, 멀티턴). macOS.
 - **[SpeechDemo](Examples/SpeechDemo/)** — 받아쓰기 및 텍스트-음성 합성 탭 인터페이스. macOS.
@@ -1137,9 +1140,9 @@ Qwen3-ASR 1.7B 8-bit는 비슷한 크기에서 Whisper Large v3 Turbo (2.5%)를 
 
 ## 아키텍처
 
-**모델:** [ASR Model](docs/models/asr-model.md), [TTS Model](docs/models/tts-model.md), [CosyVoice TTS](docs/models/cosyvoice-tts.md), [Kokoro TTS](docs/models/kokoro-tts.md), [Parakeet TDT](docs/models/parakeet-asr.md), [PersonaPlex](docs/models/personaplex.md), [FireRedVAD](docs/models/fireredvad.md)
+**모델:** [ASR Model](docs/models/asr-model.md), [TTS Model](docs/models/tts-model.md), [CosyVoice TTS](docs/models/cosyvoice-tts.md), [Kokoro TTS](docs/models/kokoro-tts.md), [Parakeet TDT](docs/models/parakeet-asr.md), [Parakeet Streaming](docs/models/parakeet-streaming-asr.md), [PersonaPlex](docs/models/personaplex.md), [FireRedVAD](docs/models/fireredvad.md)
 
-**추론:** [Qwen3-ASR](docs/inference/qwen3-asr-inference.md), [Parakeet TDT](docs/inference/parakeet-asr-inference.md), [TTS Inference](docs/inference/qwen3-tts-inference.md), [Forced Aligner](docs/inference/forced-aligner.md), [FireRedVAD](docs/inference/fireredvad.md), [Silero VAD](docs/inference/silero-vad.md), [Speaker Diarization](docs/inference/speaker-diarization.md), [Speech Enhancement](docs/inference/speech-enhancement.md), [오디오 재생](docs/audio/playback.md)
+**추론:** [Qwen3-ASR](docs/inference/qwen3-asr-inference.md), [Parakeet TDT](docs/inference/parakeet-asr-inference.md), [Parakeet Streaming](docs/inference/parakeet-streaming-asr-inference.md), [TTS Inference](docs/inference/qwen3-tts-inference.md), [Forced Aligner](docs/inference/forced-aligner.md), [FireRedVAD](docs/inference/fireredvad.md), [Silero VAD](docs/inference/silero-vad.md), [Speaker Diarization](docs/inference/speaker-diarization.md), [Speech Enhancement](docs/inference/speech-enhancement.md), [오디오 재생](docs/audio/playback.md)
 
 **벤치마크:** [ASR WER](docs/benchmarks/asr-wer.md), [TTS Round-Trip](docs/benchmarks/tts-roundtrip.md), [VAD Detection](docs/benchmarks/vad-detection.md)
 

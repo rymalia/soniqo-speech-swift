@@ -58,7 +58,9 @@ public protocol SpeechRecognitionModel: AnyObject {
 
 The `transcribeWithLanguage` method has a default implementation that delegates to `transcribe()` with no language detection. Models that detect language (e.g. ParakeetASR via `NLLanguageRecognizer`) override it to return `TranscriptionResult` with a detected language — used by the voice pipeline to forward language to TTS.
 
-**Conforming types:** `Qwen3ASRModel`, `ParakeetASRModel`
+**Conforming types:** `Qwen3ASRModel`, `ParakeetASRModel`, `ParakeetStreamingASRModel`
+
+`ParakeetStreamingASRModel` additionally exposes streaming APIs — `createSession()` for long-lived streaming with cache state, `transcribeStream(audio:sampleRate:)` for chunked AsyncSequence output, and per-session `pushAudio` / `forceEndOfUtterance` / `finalize` for fine-grained VAD-driven pipelines. The batch `transcribe` entry point runs internal chunking and remains protocol-compatible.
 
 ### ForcedAlignmentModel
 
