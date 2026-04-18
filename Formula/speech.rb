@@ -9,11 +9,13 @@ class Speech < Formula
   depends_on :macos
 
   def install
-    libexec.install "audio", "mlx.metallib"
+    libexec.install "audio", "audio-server", "mlx.metallib"
     bin.write_exec_script libexec/"audio"
+    bin.write_exec_script libexec/"audio-server"
   end
 
   test do
     assert_match "AI speech models", shell_output("#{bin}/audio --help")
+    assert_match "HTTP API server", shell_output("#{bin}/audio-server --help")
   end
 end
