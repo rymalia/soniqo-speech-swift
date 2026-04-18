@@ -220,7 +220,7 @@ public final class WakeWordSession {
         return frames
     }
 
-    private static func runDecoder(
+    static func runDecoder(
         model: MLModel, contextTokens: [Int], contextSize: Int
     ) -> [Float] {
         do {
@@ -232,15 +232,16 @@ public final class WakeWordSession {
             let input = try MLDictionaryFeatureProvider(dictionary: ["y": y])
             let out = try model.prediction(from: input)
             guard let arr = out.featureValue(for: "decoder_out")?.multiArrayValue else { return [] }
-            let ptr = arr.dataPointer.assumingMemoryBound(to: Float.self)
-            return Array(UnsafeBufferPointer(start: ptr, count: arr.count))
+            // decoder_out is fp16 in the shipped CoreML bundle even though the
+            // export spec declared fp32. Use the generic reader that handles both.
+            return floatArray(from: arr)
         } catch {
             AudioLog.inference.error("kws decoder step failed: \(error)")
             return []
         }
     }
 
-    private static func runJoiner(
+    static func runJoiner(
         model: MLModel, encoderFrame: [Float], decoderOut: [Float]
     ) -> [Float] {
         do {

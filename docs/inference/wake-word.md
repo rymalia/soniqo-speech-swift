@@ -126,7 +126,7 @@ and iterate.
   session duration — a proper rolling-trim implementation that preserves
   `(frameLength − frameShift) / 2` samples of left context is still a
   follow-up, but the CPU win (only new frames are FFT'd) is already in.
-- **Swift vs Python beam-search parity is not yet verified** — the initial
-  port's detection path diverges from the icefall reference in edge cases
-  (see the `XCTSkipIf` in `Tests/SpeechWakeWordTests/SpeechWakeWordTests.swift`).
-  Encoder + fbank parity is proven byte-close to kaldi-native-fbank.
+- Per-phrase recall depends on threshold tuning — see
+  `Tests/SpeechWakeWordTests/` for the E2E fixtures. The shipped defaults
+  (`acThreshold=0.15, contextScore=0.5`) target LibriSpeech-quality read
+  speech; noisy far-field audio usually needs higher thresholds.

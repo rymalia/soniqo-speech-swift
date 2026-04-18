@@ -88,6 +88,64 @@ public final class WakeWordDetector {
         _ = try detect(audio: dummy, sampleRate: config.feature.sampleRate)
     }
 
+    /// Build a ``StreamingKwsDecoder`` wired to the detector's CoreML
+    /// decoder + joiner but without the encoder / fbank front-end. Used in
+    /// parity tests that drive the beam search with reference encoder
+    /// frames from an external source (e.g. Python).
+    public func makeKwsDecoder(
+        keywords: [KeywordSpec],
+        contextScore: Double,
+        acThreshold: Double,
+        numTrailingBlanks: Int = 1,
+        autoResetSeconds: Double = 1.5,
+        beam: Int = 4
+    ) throws -> StreamingKwsDecoder {
+        guard let decoder = decoder, let joiner = joiner else {
+            throw AudioModelError.inferenceFailed(operation: "makeKwsDecoder", reason: "Model not loaded")
+        }
+        let graph = ContextGraph(contextScore: contextScore, acThreshold: acThreshold)
+        var ids: [[Int]] = []
+        var phrases: [String] = []
+        for kw in keywords {
+            if let tokens = kw.tokens {
+                let mapped = try tokens.map { piece -> Int in
+                    guard let id = vocabulary.tokenToId[piece] else {
+                        throw AudioModelError.invalidConfiguration(
+                            model: "KWS-Zipformer", reason: "Unknown BPE piece '\(piece)'")
+                    }
+                    return id
+                }
+                ids.append(mapped)
+            } else {
+                ids.append(bpeTokenizer.encode(kw.phrase))
+            }
+            phrases.append(kw.phrase)
+        }
+        graph.build(
+            tokenIds: ids, phrases: phrases,
+            boosts: Array(repeating: 0.0, count: ids.count),
+            thresholds: Array(repeating: 0.0, count: ids.count)
+        )
+        let ctxSize = config.decoder.contextSize
+        return StreamingKwsDecoder(
+            decoderFn: { ctx in
+                WakeWordSession.runDecoder(model: decoder, contextTokens: ctx, contextSize: ctxSize)
+            },
+            joinerFn: { enc, dec in
+                WakeWordSession.runJoiner(model: joiner, encoderFrame: enc, decoderOut: dec)
+            },
+            contextGraph: graph,
+            blankId: config.decoder.blankId,
+            unkId: nil,
+            contextSize: ctxSize,
+            beam: beam,
+            numTrailingBlanks: numTrailingBlanks,
+            blankPenalty: 0,
+            frameShiftSeconds: 0.04,
+            autoResetSeconds: autoResetSeconds
+        )
+    }
+
     // MARK: - Loading
 
     /// Load the model and build a context graph from a list of keywords.

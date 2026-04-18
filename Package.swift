@@ -402,7 +402,8 @@ let package = Package(
                 .copy("Resources/fbank_input.wav"),
                 .copy("Resources/fbank_reference.bin"),
                 .copy("Resources/kws_light_up.wav"),
-                .copy("Resources/kws_lovely_child.wav")
+                .copy("Resources/kws_lovely_child.wav"),
+                .copy("Resources/ref_encoder_light_up.bin")
             ]
         )
     ]
