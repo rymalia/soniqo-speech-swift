@@ -24,10 +24,10 @@ jobs:
       - name: Package
         run: |
           mkdir -p dist
-          cp .build/release/audio dist/
+          cp .build/release/audio .build/release/audio-server dist/
           cp .build/release/mlx.metallib dist/
           cd dist
-          tar czf audio-macos-arm64.tar.gz audio mlx.metallib
+          tar czf audio-macos-arm64.tar.gz audio audio-server mlx.metallib
 
       - name: Upload release asset
         uses: softprops/action-gh-release@v2

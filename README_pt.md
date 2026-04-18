@@ -132,6 +132,7 @@ Depois:
 audio transcribe recording.wav
 audio speak "Hello world"
 audio respond --input question.wav --transcript
+audio-server --port 8080            # servidor HTTP / WebSocket local (OpenAI-compatible /v1/realtime)
 ```
 
 **[Referencia completa do CLI →](https://soniqo.audio/pt/cli)**

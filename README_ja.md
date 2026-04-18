@@ -132,6 +132,7 @@ brew install speech
 audio transcribe recording.wav
 audio speak "Hello world"
 audio respond --input question.wav --transcript
+audio-server --port 8080            # ローカル HTTP / WebSocket サーバー（OpenAI 互換 /v1/realtime）
 ```
 
 **[完全なCLIリファレンス →](https://soniqo.audio/ja/cli)**
