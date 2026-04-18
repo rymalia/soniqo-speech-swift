@@ -120,10 +120,12 @@ and iterate.
   `tokens.txt`) to bypass tokenisation ambiguity entirely. This also lets
   you use the hand-crafted decompositions that ship in sherpa-onnx-style
   keyword files.
-- `pushAudio` recomputes fbank across the accumulated buffer each call.
-  Fine for batch detection and short live sessions; a stateful streaming
-  fbank that keeps only a rolling PCM tail would reduce per-chunk CPU for
-  long-running streams.
+- `KaldiFbank.StreamingSession` keeps the raw PCM buffer for the life of
+  the stream (used by `computeFrames(firstFrame:count:)` to avoid
+  recomputing already-emitted frames). Memory grows linearly with
+  session duration — a proper rolling-trim implementation that preserves
+  `(frameLength − frameShift) / 2` samples of left context is still a
+  follow-up, but the CPU win (only new frames are FFT'd) is already in.
 - **Swift vs Python beam-search parity is not yet verified** — the initial
   port's detection path diverges from the icefall reference in edge cases
   (see the `XCTSkipIf` in `Tests/SpeechWakeWordTests/SpeechWakeWordTests.swift`).

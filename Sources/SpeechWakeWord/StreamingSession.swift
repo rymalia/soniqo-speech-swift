@@ -11,12 +11,11 @@ public final class WakeWordSession {
     private let encoder: MLModel
     private let decoder: MLModel
     private let joiner: MLModel
-    private let fbank: KaldiFbank
+    private let fbankSession: KaldiFbank.StreamingSession
     private let kwsDecoder: StreamingKwsDecoder
 
-    // fbank accumulation buffer
-    private var audioBuffer: [Float] = []
-    // per-frame mel features buffered for the encoder sliding window
+    // Per-frame mel features buffered for the encoder sliding window. Stores
+    // only frames that have not yet been consumed by an encoder chunk.
     private var melBuffer: [[Float]] = []
     // encoder state tensors, keyed by ALL_STATE_NAMES order from the export
     private var layerStates: [String: MLMultiArray]
@@ -35,7 +34,7 @@ public final class WakeWordSession {
         self.encoder = encoder
         self.decoder = decoder
         self.joiner = joiner
-        self.fbank = fbank
+        self.fbankSession = KaldiFbank.StreamingSession(fbank)
 
         var states = [String: MLMultiArray]()
         for (name, shape) in zip(config.encoder.layerStateNames, config.encoder.layerStateShapes) {
@@ -80,7 +79,7 @@ public final class WakeWordSession {
 
     /// Reset all streaming state (audio buffer, encoder caches, decoder beam).
     public func reset() throws {
-        audioBuffer.removeAll(keepingCapacity: true)
+        fbankSession.reset()
         melBuffer.removeAll(keepingCapacity: true)
         for name in layerStates.keys {
             let array = layerStates[name]!
@@ -94,36 +93,47 @@ public final class WakeWordSession {
 
     /// Push raw PCM and return any keyword detections that fired.
     public func pushAudio(_ samples: [Float]) throws -> [KeywordDetection] {
-        audioBuffer.append(contentsOf: samples)
+        appendMelFrames(fbankSession.accept(samples))
+        return try drainEncoderChunks()
+    }
 
-        // TODO(perf): this recomputes fbank over the full accumulated buffer
-        // each call — fine for batch detect() but wasteful for long live
-        // streams. A stateful ``KaldiFbank.StreamingSession`` that keeps only
-        // a rolling PCM tail would cut per-chunk CPU. See the ``# Known
-        // limitations`` section in ``docs/inference/wake-word.md``.
-        let allMels = fbank.compute(audioBuffer)
+    /// Flush remaining audio and surface any final detections.
+    public func finalize() throws -> [KeywordDetection] {
+        // Release any trailing mel frames the streaming fbank held back for
+        // mirror-padding, then zero-pad the mel buffer up to a full encoder
+        // window so the last chunk can be processed.
+        appendMelFrames(fbankSession.flush())
+        var emissions = try drainEncoderChunks()
+        let totalIn = config.encoder.totalInputFrames
+        if melBuffer.count > 0 && melBuffer.count < totalIn {
+            let numBins = config.feature.numMelBins
+            let pad = [Float](repeating: -15.0, count: numBins)  // ~kaldi silence
+            while melBuffer.count < totalIn {
+                melBuffer.append(pad)
+            }
+            emissions.append(contentsOf: try drainEncoderChunks())
+        }
+        return emissions
+    }
+
+    private func appendMelFrames(_ rowMajor: [Float]) {
+        guard !rowMajor.isEmpty else { return }
         let numBins = config.feature.numMelBins
-        var newFrames: [[Float]] = []
-        newFrames.reserveCapacity(allMels.count / numBins)
-        for f in 0..<(allMels.count / numBins) {
+        let count = rowMajor.count / numBins
+        melBuffer.reserveCapacity(melBuffer.count + count)
+        for f in 0..<count {
             let base = f * numBins
-            newFrames.append(Array(allMels[base..<(base + numBins)]))
+            melBuffer.append(Array(rowMajor[base..<(base + numBins)]))
         }
-        // Only keep mel frames not yet fed to the encoder.
-        if newFrames.count < melBuffer.count {
-            // fbank output shrank (shouldn't happen without reset)
-            return []
-        }
-        let additions = Array(newFrames[melBuffer.count..<newFrames.count])
-        melBuffer.append(contentsOf: additions)
+    }
 
+    private func drainEncoderChunks() throws -> [KeywordDetection] {
         var emissions: [KeywordDetection] = []
-        let totalIn = config.encoder.totalInputFrames  // 45
+        let totalIn = config.encoder.totalInputFrames      // 45
         // Each encoder chunk consumes ``chunkSize * 2`` fresh mel frames; the
         // trailing 13 frames (``PAD_LENGTH`` in the Python export) overlap with
-        // the next call and are reabsorbed by the ``cached_embed_left_pad``
-        // state. Slide by ``stride``, not ``chunkSize``.
-        let stride = config.encoder.chunkSize * 2      // 32
+        // the next call and are reabsorbed by ``cached_embed_left_pad`` state.
+        let stride = config.encoder.chunkSize * 2          // 32
         while melBuffer.count >= totalIn {
             let window = Array(melBuffer.prefix(totalIn))
             let encoderFrames = try runEncoder(melWindow: window)
@@ -131,18 +141,6 @@ public final class WakeWordSession {
             melBuffer.removeFirst(stride)
         }
         return emissions
-    }
-
-    /// Flush remaining audio and surface any final detections.
-    public func finalize() throws -> [KeywordDetection] {
-        // Pad enough silence to flush one more encoder chunk.
-        let shift = config.feature.frameShiftMs * 1e-3 * Double(config.feature.sampleRate)
-        let missingFrames = max(0, config.encoder.totalInputFrames - melBuffer.count)
-        let padSamples = Int(Double(missingFrames) * shift)
-        if padSamples > 0 {
-            return try pushAudio([Float](repeating: 0, count: padSamples))
-        }
-        return []
     }
 
     // MARK: - CoreML adapters

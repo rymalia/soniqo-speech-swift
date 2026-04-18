@@ -114,6 +114,48 @@ final class KaldiFbankTests: XCTestCase {
         XCTAssertEqual(fbank.compute([]).count, 0)
     }
 
+    func testStreamingMatchesBatch() {
+        // Feeding one chunk at a time through StreamingSession must produce
+        // the same mel frames as running compute() over the whole buffer at
+        // once — byte-exact modulo ordering.
+        let fbank = KaldiFbank()
+        var samples = [Float](repeating: 0, count: 16000)
+        for i in 0..<samples.count {
+            samples[i] = sin(2.0 * .pi * 523.0 * Float(i) / 16000.0) * 0.4
+                + sin(2.0 * .pi * 1240.0 * Float(i) / 16000.0) * 0.15
+        }
+        let batch = fbank.compute(samples)
+
+        let session = KaldiFbank.StreamingSession(fbank)
+        var streamed = [Float]()
+        var offset = 0
+        while offset < samples.count {
+            let end = min(offset + 1600, samples.count)
+            streamed.append(contentsOf: session.accept(Array(samples[offset..<end])))
+            offset = end
+        }
+        streamed.append(contentsOf: session.flush())
+        XCTAssertEqual(streamed.count, batch.count, "frame count mismatch")
+        for i in 0..<streamed.count {
+            XCTAssertEqual(streamed[i], batch[i], accuracy: 1e-6,
+                           "mel[\(i)] diverged: streaming=\(streamed[i]) batch=\(batch[i])")
+        }
+    }
+
+    func testStreamingResetRestartsFromScratch() {
+        let fbank = KaldiFbank()
+        let session = KaldiFbank.StreamingSession(fbank)
+        _ = session.accept([Float](repeating: 0.1, count: 8000))
+        let emittedBeforeReset = session.emittedFrames
+        XCTAssertGreaterThan(emittedBeforeReset, 0)
+
+        session.reset()
+        XCTAssertEqual(session.emittedFrames, 0)
+
+        _ = session.accept([Float](repeating: 0.1, count: 8000))
+        XCTAssertEqual(session.emittedFrames, emittedBeforeReset)
+    }
+
     func testSilenceIsFiniteNonPositive() {
         let fbank = KaldiFbank()
         let samples = [Float](repeating: 0, count: 16000)

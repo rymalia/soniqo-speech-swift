@@ -122,35 +122,32 @@ public final class KaldiFbank {
     /// - Parameter samples: Float32 PCM in [-1, 1] at ``options.sampleRate``.
     /// - Returns: ``[numFrames * numMelBins]`` row-major mel frames (log energies).
     public func compute(_ samples: [Float]) -> [Float] {
-        let frames = numFrames(for: samples.count)
-        guard frames > 0 else { return [] }
+        return computeFrames(samples, firstFrame: 0, count: numFrames(for: samples.count))
+    }
 
-        var output = [Float](repeating: 0, count: frames * options.numMelBins)
+    /// Compute ``count`` mel frames starting at ``firstFrame``.
+    /// Used by the streaming wrapper to avoid recomputing already-emitted frames.
+    /// ``samples`` must contain enough PCM for the requested frames, including
+    /// any mirror-padding that ``extractWindow`` needs for frame 0 under
+    /// ``snipEdges=false``.
+    public func computeFrames(_ samples: [Float], firstFrame: Int, count: Int) -> [Float] {
+        guard count > 0 else { return [] }
+        var output = [Float](repeating: 0, count: count * options.numMelBins)
         var frame = [Float](repeating: 0, count: paddedSize)
         var splitReal = [Float](repeating: 0, count: paddedSize / 2)
         var splitImag = [Float](repeating: 0, count: paddedSize / 2)
         var power = [Float](repeating: 0, count: numBins)
         var mels = [Float](repeating: 0, count: options.numMelBins)
 
-        for f in 0..<frames {
-            // 1. extract raw window with snip_edges handling
+        for k in 0..<count {
+            let f = firstFrame + k
             extractWindow(samples: samples, frameIndex: f, into: &frame)
-
-            // 2. DC-remove + preemph + window on the first frameLength samples
             preprocessWindow(&frame)
-
-            // 3. zero remainder to paddedSize
             for i in options.frameLength..<paddedSize { frame[i] = 0 }
-
-            // 4. FFT → power spectrum
             fftPower(frame: &frame, real: &splitReal, imag: &splitImag, power: &power)
-
-            // 5. mel filterbank
             applyMelFilterbank(power: power, into: &mels)
-
-            // 6. log floor + natural log
             for m in 0..<options.numMelBins {
-                output[f * options.numMelBins + m] = log(max(mels[m], logFloor))
+                output[k * options.numMelBins + m] = log(max(mels[m], logFloor))
             }
         }
         return output
@@ -314,5 +311,74 @@ public final class KaldiFbank {
             _ = melToHz(centreMel)
         }
         return filters
+    }
+}
+
+// MARK: - Streaming
+
+extension KaldiFbank {
+    /// Stateful streaming wrapper around ``KaldiFbank``.
+    ///
+    /// Accumulates PCM across ``accept(_:)`` calls and uses
+    /// ``KaldiFbank.computeFrames`` to compute only the newly-ready mel
+    /// frames each time — avoiding the O(totalFrames) recomputation that
+    /// calling ``compute`` on a growing buffer would cost.
+    ///
+    /// The first chunk observes ``snipEdges=false`` mirror-padding (for
+    /// frame 0) because ``extractWindow`` owns the mirror at ``firstFrame=0``.
+    /// The buffer itself is retained in full — trimming is not yet
+    /// implemented because doing it correctly requires preserving
+    /// ``(frameLength - frameShift) / 2`` samples of left context and
+    /// tracking a frame-offset that stays aligned with ``frameShift``.
+    /// Memory grows linearly with session duration.
+    public final class StreamingSession {
+        public let fbank: KaldiFbank
+        private var buffer: [Float] = []
+        private(set) public var emittedFrames: Int = 0
+
+        public init(_ fbank: KaldiFbank) { self.fbank = fbank }
+
+        public func reset() {
+            buffer.removeAll(keepingCapacity: true)
+            emittedFrames = 0
+        }
+
+        /// Append samples and return newly-ready mel frames as a row-major
+        /// ``[count * numMelBins]`` block. Trailing frames whose windows
+        /// extend past the current buffer are held back until a later
+        /// ``accept`` (or ``flush``).
+        public func accept(_ samples: [Float]) -> [Float] {
+            buffer.append(contentsOf: samples)
+            return drain(flush: false)
+        }
+
+        /// Flush any remaining frames, allowing kaldi's right-edge mirror
+        /// padding for the tail frames under ``snipEdges=false``.
+        public func flush() -> [Float] {
+            return drain(flush: true)
+        }
+
+        private func drain(flush: Bool) -> [Float] {
+            let ready = readyFrameCount(flush: flush)
+            guard ready > emittedFrames else { return [] }
+            let count = ready - emittedFrames
+            let out = fbank.computeFrames(buffer, firstFrame: emittedFrames, count: count)
+            emittedFrames = ready
+            return out
+        }
+
+        private func readyFrameCount(flush: Bool) -> Int {
+            let opts = fbank.options
+            let n = buffer.count
+            if flush { return fbank.numFrames(for: n) }
+            if opts.snipEdges {
+                return n < opts.frameLength ? 0 : (n - opts.frameLength) / opts.frameShift + 1
+            }
+            // snip_edges=false: frame f is "safe" (no right-mirror) when
+            // its window end (f*shift + shift/2 + length/2) is ≤ n.
+            let halfSpan = opts.frameLength / 2 + opts.frameShift / 2
+            if n < halfSpan { return 0 }
+            return (n - halfSpan) / opts.frameShift + 1
+        }
     }
 }
