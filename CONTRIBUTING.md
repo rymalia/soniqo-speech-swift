@@ -87,18 +87,17 @@ changes:
 
 - **Local docs** in `docs/` (architecture, inference pipelines,
   benchmarks, shared protocols).
-- **Website docs** in the separate `soniqo-web` repository that
-  backs [soniqo.audio](https://soniqo.audio).
+- **Public documentation** at [soniqo.audio](https://soniqo.audio).
 
 Any code change that affects:
 
-- CLI flags → update the inference doc AND `/cli/` on soniqo-web.
+- CLI flags → update the inference doc AND `/cli/` on the website.
 - New modules / models → new `docs/models/*.md`, landing-page feature
-  card on soniqo-web, and a dedicated `/guides/<module>/` page.
+  card on the website, and a dedicated `/guides/<module>/` page.
 - Public API (protocols, types, function signatures) →
-  `docs/shared-protocols.md` + `/api/` on soniqo-web.
+  `docs/shared-protocols.md` + `/api/` on the website.
 - Performance characteristics → `docs/benchmarks/` +
-  `/benchmarks/` on soniqo-web.
+  `/benchmarks/` on the website.
 
 ### Translations
 
