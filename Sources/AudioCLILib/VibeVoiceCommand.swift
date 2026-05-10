@@ -6,12 +6,24 @@ import AudioCommon
 public struct VibeVoiceCommand: ParsableCommand {
     public static let configuration = CommandConfiguration(
         commandName: "vibevoice",
-        abstract: "Text-to-speech synthesis using Microsoft VibeVoice (MLX, EN/ZH)",
+        abstract: "Text-to-speech synthesis using Microsoft VibeVoice (MLX).",
         discussion: """
-        VibeVoice is a long-form / multi-speaker TTS model from Microsoft. This
-        subcommand targets the Realtime-0.5B variant by default. Voice identity
-        comes from a voice-cache .safetensors file (pre-computed from reference
-        audio) — pass one via --voice-cache.
+        Two variants, two language scopes:
+
+          • Default (no flag) — VibeVoice-Realtime-0.5B, ENGLISH ONLY.
+            Streaming, voice-cache-driven path. Per Microsoft's model card the
+            checkpoint is "intended for English speech only; other languages
+            may produce unpredictable results." Voice identity comes from a
+            pre-built .safetensors cache (`--voice-cache`); see
+            scripts/convert_vibevoice_voice.py to import one of the bundled
+            Microsoft `.pt` voices.
+
+          • `--long-form` — VibeVoice-1.5B, ENGLISH + CHINESE.
+            Single-shot 90-min capable path. Voice identity comes from a raw
+            reference audio + transcript (`--reference-audio` and
+            `--reference-transcript`); the encoder runs inline each call.
+            Other languages may transcribe to plausible-sounding but
+            unfaithful output and should be considered experimental.
         """
     )
 
