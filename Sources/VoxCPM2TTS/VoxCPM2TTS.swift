@@ -148,9 +148,59 @@ public final class VoxCPM2TTSModel: Module {
         return model
     }
 
+    private func swapQuantizedLinears(from weights: [String: MLXArray]) throws {
+        let quantizedPaths = Set(weights.keys.compactMap { key -> String? in
+            guard key.hasSuffix(".scales") else { return nil }
+            return String(key.dropLast(".scales".count))
+        })
+        guard !quantizedPaths.isEmpty else { return }
+
+        let bits: Int
+        if let cfg = args.quantization, cfg.isQuantized {
+            bits = cfg.bits
+        } else {
+            bits = inferQuantizationBits(from: weights) ?? 4
+        }
+        let groupSize = args.quantization?.groupSize ?? 64
+        guard bits == 4 || bits == 8 else {
+            throw NSError(domain: "VoxCPM2TTSModel", code: 6, userInfo: [
+                NSLocalizedDescriptionKey: "Unsupported quantization bits: \(bits) (expected 4 or 8)"
+            ])
+        }
+
+        // Walk every leaf module; convert each Linear whose path appears in the
+        // safetensors as a quantized weight. `quantize(model:filter:)` from MLXNN
+        // does the Linear → QuantizedLinear swap in place via update(modules:).
+        // The placeholder quantized parameters are overwritten by the subsequent
+        // update(parameters:) calls in loadWeights().
+        quantize(
+            model: self,
+            groupSize: groupSize,
+            bits: bits,
+            filter: { path, _ in quantizedPaths.contains(path) }
+        )
+    }
+
+    private func inferQuantizationBits(from weights: [String: MLXArray]) -> Int? {
+        for key in weights.keys where key.hasSuffix(".scales") {
+            let prefix = String(key.dropLast(".scales".count))
+            guard let weight = weights["\(prefix).weight"],
+                  let scales = weights["\(prefix).scales"],
+                  weight.ndim == 2, scales.ndim == 2 else { continue }
+            let packedCols = weight.dim(1)
+            let numGroups = scales.dim(1)
+            guard numGroups > 0 else { continue }
+            let ratio = packedCols / numGroups
+            if ratio == 8 { return 4 }
+            if ratio == 16 { return 8 }
+        }
+        return nil
+    }
+
     private func loadWeights(from directory: URL) throws {
         let allWeights = try CommonWeightLoader.loadAllSafetensors(from: directory)
         let sanitized = audio_vae.sanitize(allWeights)
+        try swapQuantizedLinears(from: sanitized)
         try loadWithDiagnostics("base_lm") {
             try loadWeights(into: base_lm, prefix: "base_lm", from: sanitized)
         }
@@ -213,9 +263,6 @@ public final class VoxCPM2TTSModel: Module {
             }
         }
         try loadWithDiagnostics("audio_vae.decoder.snake_out/conv_out") {
-            if let data = "Loading audio_vae.decoder.snake_out...\n".data(using: .utf8) {
-                FileHandle.standardOutput.write(data)
-            }
             if let snakeOut = sanitized["audio_vae.decoder.snake_out.alpha"] {
                 try ensureShape(
                     snakeOut,
@@ -241,9 +288,6 @@ public final class VoxCPM2TTSModel: Module {
                     )
                 }
                 audio_vae.decoder.conv_out.bias = convOutBias
-            }
-            if let data = "Loaded audio_vae.decoder.snake_out and conv_out\n".data(using: .utf8) {
-                FileHandle.standardOutput.write(data)
             }
         }
     }
@@ -308,21 +352,12 @@ public final class VoxCPM2TTSModel: Module {
         if let snake = module as? Snake1d {
             if let alpha = filtered["alpha"] ?? filtered[""] {
                 try loadWithDiagnostics(prefix) {
-                    if let data = "  snake current alpha shape: \(snake.alpha.shape)\n".data(using: .utf8) {
-                        FileHandle.standardOutput.write(data)
-                    }
-                    if let data = "  snake loaded alpha shape: \(alpha.shape)\n".data(using: .utf8) {
-                        FileHandle.standardOutput.write(data)
-                    }
                     snake.loadAlpha(alpha)
                 }
                 return
             }
         }
 
-        if let data = "Loading \(prefix)...\n".data(using: .utf8) {
-            FileHandle.standardOutput.write(data)
-        }
         let params = ModuleParameters.unflattened(filtered)
         _ = try loadWithDiagnostics(prefix) {
             try module.update(parameters: params, verify: .shapeMismatch)

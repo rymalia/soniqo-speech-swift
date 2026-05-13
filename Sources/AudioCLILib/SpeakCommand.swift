@@ -101,8 +101,11 @@ public struct SpeakCommand: ParsableCommand {
 
     // MARK: - VoxCPM2-specific options
 
-    @Option(name: .long, help: "[voxcpm2] HuggingFace model ID")
-    public var voxcpm2ModelId: String = "mlx-community/VoxCPM2-bf16"
+    @Option(name: .long, help: "[voxcpm2] Quantization variant: bf16 (default), int8, int4. Resolved against aufklarer/VoxCPM2-MLX-* unless --voxcpm2-model-id is set.")
+    public var voxcpm2Variant: String = "bf16"
+
+    @Option(name: .long, help: "[voxcpm2] Full HuggingFace model ID, overrides --voxcpm2-variant. Defaults to the resolved aufklarer bundle.")
+    public var voxcpm2ModelId: String?
 
     @Option(name: .long, help: "[voxcpm2] Style instruction")
     public var voxcpm2Instruct: String?
@@ -447,6 +450,20 @@ public struct SpeakCommand: ParsableCommand {
 
     // MARK: - VoxCPM2 engine
 
+    private func resolvedVoxCPM2ModelId() throws -> String {
+        if let explicit = voxcpm2ModelId { return explicit }
+        switch voxcpm2Variant.lowercased() {
+        case "bf16":
+            return "aufklarer/VoxCPM2-MLX-bf16"
+        case "int8":
+            return "aufklarer/VoxCPM2-MLX-int8"
+        case "int4":
+            return "aufklarer/VoxCPM2-MLX-int4"
+        default:
+            throw ValidationError("--voxcpm2-variant must be bf16, int8, or int4 (got '\(voxcpm2Variant)')")
+        }
+    }
+
     private func runVoxCPM2() throws {
         try runAsync {
             guard let inputText = text else {
@@ -454,15 +471,16 @@ public struct SpeakCommand: ParsableCommand {
                 throw ExitCode(1)
             }
 
-            print("Loading VoxCPM2 model (\(voxcpm2ModelId))...")
+            let resolvedId = try resolvedVoxCPM2ModelId()
+            print("Loading VoxCPM2 model (\(resolvedId))...")
             let model = try await VoxCPM2TTSModel.fromPretrained(
-                modelId: voxcpm2ModelId,
+                modelId: resolvedId,
                 progressHandler: reportProgress
             )
 
             if let s = seed {
                 MLX.seed(s)
-                print("  Seed: \(s)")
+                print("  Seed: \(s) (deterministic flow + LM + vocoder sampling)")
             }
 
             let referenceAudio: [Float]?

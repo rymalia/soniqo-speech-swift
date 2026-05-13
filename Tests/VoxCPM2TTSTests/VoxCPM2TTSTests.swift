@@ -159,10 +159,65 @@ final class VoxCPM2TTSLayerTests: XCTestCase {
 
     func testScalarQuantizationLayerInitializes() throws {
         try XCTSkipUnless(Self.hasMLXMetallib, "MLX metallib not available in this test environment")
+        // Linear.shape is `(outputFeatures, inputFeatures)`, so:
+        //   in_proj  : inDim=2 → latentDim=4  → shape = (4, 2)
+        //   out_proj : latentDim=4 → outDim=3 → shape = (3, 4)
         let layer = ScalarQuantizationLayer(inDim: 2, outDim: 3, latentDim: 4, scale: 9)
-
         XCTAssertEqual(layer.scale, 9)
         XCTAssertEqual(layer.in_proj.shape.0, 4)
+        XCTAssertEqual(layer.in_proj.shape.1, 2)
         XCTAssertEqual(layer.out_proj.shape.0, 3)
+        XCTAssertEqual(layer.out_proj.shape.1, 4)
+    }
+}
+
+// MARK: - End-to-End Tests
+//
+// Each variant downloads ~2–5 GB on first run. Filtered out of CI via `--skip E2E`.
+// Run locally with: swift test --filter E2EVoxCPM2TTSTests
+
+import AudioCommon
+import MLX
+@testable import VoxCPM2TTS
+
+final class E2EVoxCPM2TTSTests: XCTestCase {
+
+    override func tearDown() {
+        super.tearDown()
+        // Free the previous variant's MLX buffers before the next test loads
+        // its model — otherwise running bf16 + int8 + int4 in one process
+        // blows past the GPU memory budget.
+        Memory.clearCache()
+    }
+
+    private func runBasicSynthesis(modelId: String, file: StaticString = #filePath, line: UInt = #line) async throws {
+        let model = try await VoxCPM2TTSModel.fromPretrained(modelId: modelId)
+        defer { model.unload() }
+        // Cap maxTokens to bound test runtime — the stop head doesn't always
+        // fire quickly for short prompts on every variant. Keep
+        // inferenceTimesteps + minTokens at defaults (10 / 2) so the Euler
+        // CFM solver converges and produces non-NaN audio.
+        let audio = try await model.generateVoxCPM2(text: "Hello.", maxTokens: 50)
+
+        XCTAssertFalse(audio.isEmpty, "Should produce audio", file: file, line: line)
+        XCTAssertEqual(model.sampleRate, 48_000, file: file, line: line)
+        let duration = Double(audio.count) / Double(model.sampleRate)
+        XCTAssertGreaterThan(duration, 0.05, "Should be at least 50ms", file: file, line: line)
+
+        let maxAmp = audio.map { abs($0) }.max() ?? 0
+        XCTAssertTrue(maxAmp.isFinite, "Audio must not contain NaN/Inf", file: file, line: line)
+        XCTAssertGreaterThan(maxAmp, 0.001, "Should not be silent", file: file, line: line)
+    }
+
+    func testBasicSynthesisBF16() async throws {
+        try await runBasicSynthesis(modelId: "aufklarer/VoxCPM2-MLX-bf16")
+    }
+
+    func testBasicSynthesisInt8() async throws {
+        try await runBasicSynthesis(modelId: "aufklarer/VoxCPM2-MLX-int8")
+    }
+
+    func testBasicSynthesisInt4() async throws {
+        try await runBasicSynthesis(modelId: "aufklarer/VoxCPM2-MLX-int4")
     }
 }

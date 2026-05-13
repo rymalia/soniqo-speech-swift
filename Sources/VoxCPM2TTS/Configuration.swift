@@ -203,6 +203,29 @@ public struct AudioVAEConfig: Codable, Sendable {
     }
 }
 
+public struct QuantizationConfig: Codable, Sendable {
+    public var bits: Int = 16
+    public var groupSize: Int = 64
+    public var variant: String?
+
+    enum CodingKeys: String, CodingKey {
+        case bits
+        case groupSize = "group_size"
+        case variant
+    }
+
+    public init() {}
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.bits = try container.decodeIfPresent(Int.self, forKey: .bits) ?? 16
+        self.groupSize = try container.decodeIfPresent(Int.self, forKey: .groupSize) ?? 64
+        self.variant = try container.decodeIfPresent(String.self, forKey: .variant)
+    }
+
+    public var isQuantized: Bool { bits == 4 || bits == 8 }
+}
+
 public struct ModelArgs: Codable, Sendable {
     public var lmConfig: LMConfig = LMConfig()
     public var encoderConfig: EncoderConfig = EncoderConfig()
@@ -215,6 +238,7 @@ public struct ModelArgs: Codable, Sendable {
     public var residualLMNumLayers: Int = 8
     public var residualLMNoRope: Bool = true
     public var maxLength: Int = 8192
+    public var quantization: QuantizationConfig?
 
     enum CodingKeys: String, CodingKey {
         case lmConfig = "lm_config"
@@ -228,6 +252,7 @@ public struct ModelArgs: Codable, Sendable {
         case residualLMNumLayers = "residual_lm_num_layers"
         case residualLMNoRope = "residual_lm_no_rope"
         case maxLength = "max_length"
+        case quantization
     }
 
     public init() {}
