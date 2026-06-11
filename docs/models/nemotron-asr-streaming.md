@@ -5,7 +5,7 @@ Multilingual streaming ASR from NVIDIA, ported to CoreML for Apple Silicon via t
 ## Source
 
 - Upstream: [nvidia/nemotron-3.5-asr-streaming-0.6b](https://huggingface.co/nvidia/nemotron-3.5-asr-streaming-0.6b) (gated)
-- Reference architecture: NeMo `EncDecRNNTBPEModelWithPrompt` (restored through `EncDecHybridRNNTCTCBPEModelWithPrompt` in the export pipeline because the prompt-RNNT target class is unreleased)
+- Reference architecture: NeMo `EncDecRNNTBPEModelWithPrompt`
 - Conversion pipeline: `speech-models/models/nemotron-asr-streaming-multilingual/export/`
 
 ## Top-level pipeline
@@ -16,6 +16,7 @@ raw 16 kHz audio
   → cache-aware Conformer encoder (24 layers, d_model=1024, 580 M params)
   → prompt-kernel language conditioning (one-hot 128-slot → concat → 2-layer MLP)
   → RNN-T greedy decoder (2-layer LSTM, pred_hidden=640, blank id=13087)
+  → optional word boosting over joint logits
   → text tokens (vocab 13087, with `<lang-XX>` markers)
 ```
 
@@ -33,6 +34,16 @@ The encoder runs over short audio chunks while preserving four caches across cal
 | `cache_last_channel_len` | `[1]` int32 | number of valid frames currently in KV cache |
 
 The decoder LSTM state (`h`, `c`) is also persisted between chunks; the joint network is stateless.
+
+## Word boosting
+
+`NemotronStreamingASR` implements word boosting decoder-side, between `joint.prediction(...)` and greedy token selection in `RNNTGreedyDecoder`. Boosted phrases are tokenized with the Nemotron SentencePiece tokenizer when `tokenizer.model` is present, stored in a phrase-prefix trie, and applied as token-level logit bias during decoding. This is an RNN-T shallow-fusion path for the current CoreML bundle, not the full NVIDIA CTC-WS algorithm.
+
+The implementation does not allow word boosting to replace the RNN-T blank token. Blank advances decoding to the next encoder frame; letting a boosted phrase beat blank can pin the decoder on one frame and produce repeated-token garbage. Boosting is only applied when the unboosted greedy token is non-blank.
+
+When `ctc.mlmodelc` is present, Speech Swift can run it on each chunk's `encoded_output` and store recent CTC log-prob frames. If word boosting tries to replace the normal greedy token, the matched token path must also have ordered CTC evidence near the current encoder frame. Pure SentencePiece boundary tokens (`▁`) are ignored by this acoustic check.
+
+For this to work, the bundle must include an auxiliary CTC head from a CTC or hybrid RNN-T/CTC checkpoint. The public `nvidia/nemotron-3.5-asr-streaming-0.6b` checkpoint inspected on June 10, 2026 is RNNT-only: its `model_config.yaml` target is `EncDecRNNTBPEModelWithPrompt`, it has no `aux_ctc` section, and its weights contain no CTC or auxiliary-CTC tensors. Bundles built from that checkpoint report `shallowFusionOnly` via `wordBoostingValidationStatus`.
 
 ## Chunk modes (att_context_size from .nemo config)
 
@@ -59,7 +70,7 @@ Slot mapping ships in `languages.json` (e.g. `"en-US": 0`, `"de-DE": 9`, `"ja-JP
 
 ## Vocabulary
 
-- 13 087 SentencePiece BPE pieces + 1 blank id (13087)
+- 13 087 SentencePiece pieces + 1 blank id (13087)
 - Native punctuation tokens (`.`, `,`, `?`, `!`, etc.) as regular vocab entries
 - Per-language tag tokens (`<en-US>`, `<de-DE>`, ...) emitted as suffix on each utterance; the Swift wrapper strips these via a regex in WER-style normalization
 
@@ -71,12 +82,27 @@ After running `convert.py --chunk-ms 320 --compile`:
 encoder.mlmodelc/    565 MB  INT8 palettized, ANE + GPU friendly
 decoder.mlmodelc/     29 MB  FP16 LSTM, runs on CPU
 joint.mlmodelc/       18 MB  FP16 dense, runs on CPU
+ctc.mlmodelc/         optional auxiliary CTC verifier for word boosting
 config.json           streaming geometry + dims for the loader
 vocab.json            id → piece
+tokenizer.model       optional; real SentencePiece model for word boosting phrase tokenization
 languages.json        promptDictionary: lang tag → slot
 ```
 
 `.mlmodelc` (compiled) ships rather than `.mlpackage` per the speech-models policy — on-device `MLModel.compileModel()` produces non-deterministic output across simulator vs device runtimes, breaking parity.
+
+### Exporting the CTC verifier
+
+The auxiliary CTC verifier can only be exported from a CTC or hybrid RNN-T/CTC `.nemo` checkpoint whose config contains `aux_ctc`:
+
+```bash
+python scripts/export_nemotron_ctc_coreml.py \
+  /path/to/hybrid-rnnt-ctc-nemotron.nemo \
+  /path/to/Nemotron-3.5-ASR-Streaming-0.6B-CoreML-INT8 \
+  --compile
+```
+
+The script refuses RNNT-only checkpoints up front. For a compatible hybrid checkpoint, it restores the `.nemo`, reads `model.ctc_decoder`, wraps it to accept the existing CoreML encoder output shape `[1, outputFrames, encoderHidden]`, and writes `ctc.mlmodelc` into the bundle.
 
 ## Differences vs older `nemotron-speech-streaming-en-0.6b`
 

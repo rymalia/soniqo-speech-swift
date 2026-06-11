@@ -222,6 +222,28 @@ final class E2ENemotronStreamingASRTests: XCTestCase {
         print("Batch en-US: \(text)")
     }
 
+    func testBatchTranscriptionEnglishWithWordBoosting() throws {
+        let m = try model
+        let audioURL = Bundle.module.url(forResource: "test_audio", withExtension: "wav")!
+        let audio = try AudioFileLoader.load(url: audioURL, targetSampleRate: 16000)
+        let boosted = WordBoostingConfig(
+            phrases: ["replacement part", "shipped tomorrow"],
+            boost: 0.75
+        )
+
+        let text = try m.transcribeAudio(
+            audio,
+            sampleRate: 16000,
+            language: "en-US",
+            wordBoosting: boosted
+        )
+
+        XCTAssertFalse(text.isEmpty, "Boosted transcription should not be empty")
+        XCTAssertTrue(text.localizedCaseInsensitiveContains("replacement"))
+        XCTAssertTrue(text.localizedCaseInsensitiveContains("tomorrow"))
+        print("Batch en-US boosted: \(text)")
+    }
+
     func testStreamingTranscriptionEnglish() async throws {
         let m = try model
         let audioURL = Bundle.module.url(forResource: "test_audio", withExtension: "wav")!

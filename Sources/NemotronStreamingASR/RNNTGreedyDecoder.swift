@@ -23,6 +23,7 @@ class ReusableFeatureProvider: MLFeatureProvider {
 struct RNNTDecodeResult {
     let tokens: [Int]
     let tokenLogProbs: [Float]
+    let wordBoostingChangedDecisions: Int
 }
 
 /// Greedy RNNT decoder for Nemotron Streaming. Blank advances to the next encoder
@@ -32,6 +33,8 @@ struct RNNTGreedyDecoder {
     let config: NemotronStreamingConfig
     let decoder: MLModel
     let joint: MLModel
+    let wordBoosting: WordBoostingContext?
+    let ctcValidator: CTCWordBoostingValidator?
 
     private let maxSymbolsPerStep = 10
 
@@ -46,10 +49,13 @@ struct RNNTGreedyDecoder {
         jointProvider: ReusableFeatureProvider,
         tokenArray: MLMultiArray,
         encSlice: MLMultiArray,
-        argmaxBuf: UnsafeMutablePointer<Float>
+        argmaxBuf: UnsafeMutablePointer<Float>,
+        wordBoostingState: inout WordBoostingState?,
+        globalFrameOffset: Int = 0
     ) throws -> RNNTDecodeResult {
         var tokens = [Int]()
         var tokenLogProbs = [Float]()
+        var wordBoostingChangedDecisions = 0
 
         let tokenPtr = tokenArray.dataPointer.assumingMemoryBound(to: Int32.self)
         let totalClasses = config.vocabSize + 1
@@ -64,7 +70,17 @@ struct RNNTGreedyDecoder {
                 let jointOut = try joint.prediction(from: jointProvider)
                 let logits = jointOut.featureValue(for: "logits")!.multiArrayValue!
 
-                let tokenId = argmax(logits, count: totalClasses, floatBuf: argmaxBuf)
+                let selection = selectToken(
+                    logits,
+                    count: totalClasses,
+                    floatBuf: argmaxBuf,
+                    state: &wordBoostingState,
+                    frameIndex: globalFrameOffset + i
+                )
+                let tokenId = selection.tokenId
+                if tokenId != selection.unboostedTokenId {
+                    wordBoostingChangedDecisions += 1
+                }
 
                 if tokenId == config.blankTokenId { break }
 
@@ -85,7 +101,11 @@ struct RNNTGreedyDecoder {
             }
         }
 
-        return RNNTDecodeResult(tokens: tokens, tokenLogProbs: tokenLogProbs)
+        return RNNTDecodeResult(
+            tokens: tokens,
+            tokenLogProbs: tokenLogProbs,
+            wordBoostingChangedDecisions: wordBoostingChangedDecisions
+        )
     }
 
     private func copyEncoderFrameFP16(from encoded: MLMultiArray, at t: Int, toFP32 slice: MLMultiArray) {
@@ -121,6 +141,39 @@ struct RNNTGreedyDecoder {
         var maxIdx: vDSP_Length = 0
         vDSP_maxvi(floatBuf, 1, &maxVal, &maxIdx, vDSP_Length(count))
         return Int(maxIdx)
+    }
+
+    private struct TokenSelection {
+        let tokenId: Int
+        let unboostedTokenId: Int
+    }
+
+    private func selectToken(
+        _ array: MLMultiArray,
+        count: Int,
+        floatBuf: UnsafeMutablePointer<Float>,
+        state: inout WordBoostingState?,
+        frameIndex: Int
+    ) -> TokenSelection {
+        guard let wordBoosting, var boostingState = state else {
+            let tokenId = argmax(array, count: count, floatBuf: floatBuf)
+            return TokenSelection(tokenId: tokenId, unboostedTokenId: tokenId)
+        }
+
+        loadFP16AsFloat(array, count: count, into: floatBuf)
+        let selection = wordBoosting.selectTokenWithDetails(
+            from: floatBuf,
+            count: count,
+            blankTokenId: config.blankTokenId,
+            state: &boostingState,
+            frameIndex: frameIndex,
+            acousticValidator: ctcValidator
+        )
+        state = boostingState
+        return TokenSelection(
+            tokenId: selection.tokenId,
+            unboostedTokenId: selection.unboostedTokenId
+        )
     }
 
     private func loadFP16AsFloat(_ array: MLMultiArray, count: Int, into buf: UnsafeMutablePointer<Float>) {

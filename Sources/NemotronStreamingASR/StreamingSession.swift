@@ -10,9 +10,13 @@ public class StreamingSession {
     private let encoder: MLModel
     private let decoder: MLModel
     private let joint: MLModel
+    private let ctc: MLModel?
     private let vocabulary: NemotronVocabulary
     private let melPreprocessor: StreamingMelPreprocessor
     private let rnntDecoder: RNNTGreedyDecoder
+    private var wordBoostingState: WordBoostingState?
+    private let ctcValidator: CTCWordBoostingValidator?
+    private var globalFrameOffset: Int = 0
 
     private var cacheLastChannel: MLMultiArray
     private var cacheLastTime: MLMultiArray
@@ -35,6 +39,7 @@ public class StreamingSession {
     private var allLogProbs: [Float] = []
     private var sampleBuffer: [Float] = []
     private var segmentIndex: Int = 0
+    internal private(set) var wordBoostingChangedDecisions: Int = 0
 
     init(
         config: NemotronStreamingConfig,
@@ -42,16 +47,39 @@ public class StreamingSession {
         encoder: MLModel,
         decoder: MLModel,
         joint: MLModel,
+        ctc: MLModel?,
         vocabulary: NemotronVocabulary,
-        melPreprocessor: StreamingMelPreprocessor
+        melPreprocessor: StreamingMelPreprocessor,
+        wordBoosting: WordBoostingConfig?,
+        wordBoostingTokenizer: NemotronSentencePieceUnigramTokenizer?
     ) throws {
         self.config = config
         self.encoder = encoder
         self.decoder = decoder
         self.joint = joint
+        self.ctc = ctc
         self.vocabulary = vocabulary
         self.melPreprocessor = melPreprocessor
-        self.rnntDecoder = RNNTGreedyDecoder(config: config, decoder: decoder, joint: joint)
+        let wordBoostingContext = WordBoostingContext(
+            config: wordBoosting,
+            vocabulary: vocabulary,
+            tokenizer: wordBoostingTokenizer
+        )
+        let ctcValidator = ctc == nil || wordBoostingContext == nil
+            ? nil
+            : CTCWordBoostingValidator(
+                classCount: config.vocabSize + 1,
+                ignoredTokenIds: vocabulary.wordBoostingAcousticIgnoredTokenIds()
+            )
+        self.ctcValidator = ctcValidator
+        self.rnntDecoder = RNNTGreedyDecoder(
+            config: config,
+            decoder: decoder,
+            joint: joint,
+            wordBoosting: wordBoostingContext,
+            ctcValidator: ctcValidator
+        )
+        self.wordBoostingState = wordBoostingContext?.initialState()
 
         let layers = config.encoderLayers
         let hidden = config.encoderHidden
@@ -168,7 +196,8 @@ public class StreamingSession {
             text: text,
             isFinal: true,
             confidence: confidence,
-            segmentIndex: segmentIndex
+            segmentIndex: segmentIndex,
+            wordBoostingChangedDecisions: wordBoostingChangedDecisions
         )]
     }
 
@@ -215,6 +244,14 @@ public class StreamingSession {
 
         guard encodedLength > 0 else { return nil }
 
+        if let ctcLogProbs = try runCTCIfAvailable(encoded: encoded) {
+            ctcValidator?.append(
+                logProbs: ctcLogProbs,
+                validFrames: encodedLength,
+                startingAt: globalFrameOffset
+            )
+        }
+
         let result = try rnntDecoder.decode(
             encoded: encoded,
             encodedLength: encodedLength,
@@ -226,11 +263,15 @@ public class StreamingSession {
             jointProvider: jointProvider,
             tokenArray: tokenArray,
             encSlice: encSlice,
-            argmaxBuf: argmaxBuf
+            argmaxBuf: argmaxBuf,
+            wordBoostingState: &wordBoostingState,
+            globalFrameOffset: globalFrameOffset
         )
+        globalFrameOffset += encodedLength
 
         allTokens.append(contentsOf: result.tokens)
         allLogProbs.append(contentsOf: result.tokenLogProbs)
+        wordBoostingChangedDecisions += result.wordBoostingChangedDecisions
 
         let text = vocabulary.decode(allTokens)
         guard !text.isEmpty else { return nil }
@@ -247,7 +288,8 @@ public class StreamingSession {
             text: text,
             isFinal: false,
             confidence: confidence,
-            segmentIndex: segmentIndex
+            segmentIndex: segmentIndex,
+            wordBoostingChangedDecisions: wordBoostingChangedDecisions
         )
     }
 
@@ -255,6 +297,32 @@ public class StreamingSession {
         let array = try MLMultiArray(shape: [1], dataType: .int32)
         array[0] = NSNumber(value: value)
         return array
+    }
+
+    private func runCTCIfAvailable(encoded: MLMultiArray) throws -> MLMultiArray? {
+        guard let ctc else { return nil }
+
+        let ctcInput: MLMultiArray
+        if encoded.dataType == .float32 {
+            ctcInput = encoded
+        } else {
+            ctcInput = try MLMultiArray(shape: encoded.shape, dataType: .float32)
+            Self.copyCastFP16ToFP32(encoded, into: ctcInput)
+        }
+
+        let input = try MLDictionaryFeatureProvider(dictionary: [
+            "encoded_output": MLFeatureValue(multiArray: ctcInput)
+        ])
+        let output = try ctc.prediction(from: input)
+        if let named = output.featureValue(for: "ctc_logprobs")?.multiArrayValue {
+            return named
+        }
+        for name in output.featureNames {
+            if let array = output.featureValue(for: name)?.multiArrayValue {
+                return array
+            }
+        }
+        return nil
     }
 
     static func copyCastFP16ToFP32(_ src: MLMultiArray, into dst: MLMultiArray) {
