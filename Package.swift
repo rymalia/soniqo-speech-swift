@@ -101,6 +101,10 @@ let package = Package(
             targets: ["KokoroTTS"]
         ),
         .library(
+            name: "SupertonicTTS",
+            targets: ["SupertonicTTS"]
+        ),
+        .library(
             name: "Qwen3TTSCoreML",
             targets: ["Qwen3TTSCoreML"]
         ),
@@ -396,6 +400,12 @@ let package = Package(
             ]
         ),
         .target(
+            name: "SupertonicTTS",
+            dependencies: [
+                "AudioCommon",
+            ]
+        ),
+        .target(
             name: "Qwen3Chat",
             dependencies: [
                 "AudioCommon",
@@ -609,6 +619,14 @@ let package = Package(
             name: "KokoroTTSTests",
             dependencies: [
                 "KokoroTTS",
+                "AudioCommon",
+                "Qwen3ASR",
+            ]
+        ),
+        .testTarget(
+            name: "SupertonicTTSTests",
+            dependencies: [
+                "SupertonicTTS",
                 "AudioCommon",
                 "Qwen3ASR",
             ]
