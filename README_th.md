@@ -34,6 +34,7 @@
 - **[Kokoro TTS](https://soniqo.audio/guides/kokoro)** — TTS บนอุปกรณ์ (82M, CoreML/Neural Engine, 54 เสียง พร้อมใช้งานบน iOS, 10 ภาษา)
 - **[VibeVoice TTS](https://soniqo.audio/guides/vibevoice)** — TTS แบบยาว / หลายผู้พูด (Microsoft VibeVoice Realtime-0.5B + 1.5B, MLX สังเคราะห์พอดแคสต์/หนังสือเสียงได้นานสูงสุด 90 นาที, EN/ZH)
 - **[Magpie TTS](https://soniqo.audio/guides/magpie)** — TTS หลายภาษา (NVIDIA Magpie-TTS Multilingual 357M, MLX INT8 411 MB หรือ CoreML INT8 342 MB, 9 ภาษา, 5 ผู้พูดสำเร็จรูป สตรีมมิ่งบน MLX)
+- **[Supertonic TTS](https://soniqo.audio/guides/supertonic)** — TTS แบบ flow-matching บนอุปกรณ์ (Supertone Supertonic-3 99M, CoreML/Neural Engine, 31 ภาษา, 10 เสียง, G2P-free, 44.1 kHz)
 - **[Qwen3.5-Chat](https://soniqo.audio/guides/chat)** — แชท LLM บนอุปกรณ์ (0.8B, MLX INT4 + CoreML INT8, DeltaNet ไฮบริด สตรีมมิ่งโทเค็น)
 - **[FunctionGemma](https://soniqo.audio/guides/function-calls)** — LLM บนอุปกรณ์สำหรับการเรียกฟังก์ชัน / เครื่องมือแบบมีโครงสร้าง (Gemma 3 270M, CoreML 8-bit palettize, Neural Engine, ~252 tok/s)
 - **[MADLAD-400](https://soniqo.audio/guides/translate)** — การแปลแบบหลายต่อหลายระหว่างกว่า 400 ภาษา (3B, MLX INT4 + INT8, T5 v1.1, Apache 2.0)
@@ -116,7 +117,7 @@ struct DictateView: View {
 
 `SpeechUI` มาพร้อมเพียง `TranscriptionView` (ผลลัพธ์สุดท้าย + บางส่วน) และ `TranscriptionStore` (อะแดปเตอร์สำหรับ ASR แบบสตรีมมิ่ง) ใช้ AVFoundation สำหรับการแสดงผลภาพเสียงและการเล่นเสียง
 
-ผลิตภัณฑ์ SPM ที่มีให้: `Qwen3ASR`, `Qwen3TTS`, `Qwen3TTSCoreML`, `ParakeetASR`, `ParakeetStreamingASR`, `NemotronStreamingASR`, `OmnilingualASR`, `KokoroTTS`, `VibeVoiceTTS`, `CosyVoiceTTS`, `VoxCPM2TTS`, `MagpieTTS`, `MagpieTTSCoreML`, `MAGNeTMusicGen`, `FlashSR`, `PersonaPlex`, `HibikiTranslate`, `SpeechVAD`, `SpeechEnhancement`, `SourceSeparation`, `Qwen3Chat`, `SpeechCore`, `SpeechUI`, `AudioCommon`
+ผลิตภัณฑ์ SPM ที่มีให้: `Qwen3ASR`, `Qwen3TTS`, `Qwen3TTSCoreML`, `ParakeetASR`, `ParakeetStreamingASR`, `NemotronStreamingASR`, `OmnilingualASR`, `KokoroTTS`, `SupertonicTTS`, `VibeVoiceTTS`, `CosyVoiceTTS`, `VoxCPM2TTS`, `MagpieTTS`, `MagpieTTSCoreML`, `MAGNeTMusicGen`, `FlashSR`, `PersonaPlex`, `HibikiTranslate`, `SpeechVAD`, `SpeechEnhancement`, `SourceSeparation`, `Qwen3Chat`, `SpeechCore`, `SpeechUI`, `AudioCommon`
 
 ## โมเดล
 
@@ -135,6 +136,7 @@ struct DictateView: View {
 | [CosyVoice3](https://soniqo.audio/guides/cosyvoice) | ข้อความ → เสียงพูด | MLX | 0.5B | 9 |
 | [VoxCPM2](https://soniqo.audio/speech-generation) | ข้อความ → เสียงพูด (48 kHz, ออกแบบเสียง + โคลนเสียง) | MLX | 2B (bf16/int8) | 30 |
 | [Kokoro-82M](https://soniqo.audio/guides/kokoro) | ข้อความ → เสียงพูด | CoreML (ANE) | 82M | 10 |
+| [Supertonic-3](https://soniqo.audio/guides/supertonic) | ข้อความ → เสียงพูด (44.1 kHz, flow-matching, G2P-free) | CoreML (ANE) | 99M | 31 |
 | [VibeVoice Realtime-0.5B](https://soniqo.audio/guides/vibevoice) | ข้อความ → เสียงพูด (รูปแบบยาว หลายผู้พูด) | MLX | 0.5B | EN/ZH |
 | [VibeVoice 1.5B](https://soniqo.audio/guides/vibevoice) | ข้อความ → เสียงพูด (พอดแคสต์ยาวสุด 90 นาที) | MLX | 1.5B | EN/ZH |
 | [Magpie-TTS Multilingual](https://soniqo.audio/guides/magpie) | ข้อความ → เสียงพูด (5 ผู้พูดสำเร็จรูป สตรีมมิ่ง) | MLX / CoreML | 357M (MLX INT8, CoreML INT8) | 9 (CoreML ไม่รวม JA) |

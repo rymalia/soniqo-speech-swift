@@ -34,6 +34,7 @@ Mac ve iOS için cihaz üzerinde konuşma tanıma, sentezleme ve anlama. Apple S
 - **[Kokoro TTS](https://soniqo.audio/guides/kokoro)** — Cihaz üzerinde TTS (82M, CoreML/Neural Engine, 54 ses, iOS için hazır, 10 dil)
 - **[VibeVoice TTS](https://soniqo.audio/guides/vibevoice)** — Uzun biçimli / çok konuşmacılı TTS (Microsoft VibeVoice Realtime-0.5B + 1.5B, MLX, 90 dakikaya kadar podcast/sesli kitap sentezi, EN/ZH)
 - **[Magpie TTS](https://soniqo.audio/guides/magpie)** — Çok dilli TTS (NVIDIA Magpie-TTS Multilingual 357M, MLX INT8 411 MB veya CoreML INT8 342 MB, 9 dil, 5 hazır konuşmacı, MLX'te akış)
+- **[Supertonic TTS](https://soniqo.audio/guides/supertonic)** — Cihaz üzerinde flow-matching TTS (Supertone Supertonic-3 99M, CoreML/Neural Engine, 31 dil, 10 ses, G2P-free, 44.1 kHz)
 - **[Qwen3.5-Chat](https://soniqo.audio/guides/chat)** — Cihaz üzerinde LLM sohbet (0.8B, MLX INT4 + CoreML INT8, DeltaNet hibrit, akış token'ları)
 - **[FunctionGemma](https://soniqo.audio/guides/function-calls)** — Cihaz üzerinde yapılandırılmış fonksiyon / araç çağrıları için LLM (Gemma 3 270M, CoreML 8-bit paletleme, Neural Engine, ~252 tok/s)
 - **[MADLAD-400](https://soniqo.audio/guides/translate)** — 400+ dil arasında çoktan-çoğa çeviri (3B, MLX INT4 + INT8, T5 v1.1, Apache 2.0)
@@ -116,7 +117,7 @@ struct DictateView: View {
 
 `SpeechUI` yalnızca `TranscriptionView` (kesin sonuçlar + kısmi sonuçlar) ve `TranscriptionStore` (akış ASR adaptörü) sunar. Ses görselleştirme ve oynatma için AVFoundation kullanın.
 
-Mevcut SPM ürünleri: `Qwen3ASR`, `Qwen3TTS`, `Qwen3TTSCoreML`, `ParakeetASR`, `ParakeetStreamingASR`, `NemotronStreamingASR`, `OmnilingualASR`, `KokoroTTS`, `VibeVoiceTTS`, `CosyVoiceTTS`, `VoxCPM2TTS`, `MagpieTTS`, `MagpieTTSCoreML`, `MAGNeTMusicGen`, `FlashSR`, `PersonaPlex`, `HibikiTranslate`, `SpeechVAD`, `SpeechEnhancement`, `SourceSeparation`, `Qwen3Chat`, `SpeechCore`, `SpeechUI`, `AudioCommon`.
+Mevcut SPM ürünleri: `Qwen3ASR`, `Qwen3TTS`, `Qwen3TTSCoreML`, `ParakeetASR`, `ParakeetStreamingASR`, `NemotronStreamingASR`, `OmnilingualASR`, `KokoroTTS`, `SupertonicTTS`, `VibeVoiceTTS`, `CosyVoiceTTS`, `VoxCPM2TTS`, `MagpieTTS`, `MagpieTTSCoreML`, `MAGNeTMusicGen`, `FlashSR`, `PersonaPlex`, `HibikiTranslate`, `SpeechVAD`, `SpeechEnhancement`, `SourceSeparation`, `Qwen3Chat`, `SpeechCore`, `SpeechUI`, `AudioCommon`.
 
 ## Modeller
 
@@ -135,6 +136,7 @@ Aşağıda kompakt bir görünüm. **[Boyutlar, kuantizasyonlar, indirme URL'ler
 | [CosyVoice3](https://soniqo.audio/guides/cosyvoice) | Metin → Konuşma | MLX | 0.5B | 9 |
 | [VoxCPM2](https://soniqo.audio/speech-generation) | Metin → Konuşma (48 kHz, ses tasarımı + klonlama) | MLX | 2B (bf16/int8) | 30 |
 | [Kokoro-82M](https://soniqo.audio/guides/kokoro) | Metin → Konuşma | CoreML (ANE) | 82M | 10 |
+| [Supertonic-3](https://soniqo.audio/guides/supertonic) | Metin → Konuşma (44.1 kHz, flow-matching, G2P-free) | CoreML (ANE) | 99M | 31 |
 | [VibeVoice Realtime-0.5B](https://soniqo.audio/guides/vibevoice) | Metin → Konuşma (uzun biçimli, çok konuşmacılı) | MLX | 0.5B | EN/ZH |
 | [VibeVoice 1.5B](https://soniqo.audio/guides/vibevoice) | Metin → Konuşma (90 dakikaya kadar podcast) | MLX | 1.5B | EN/ZH |
 | [Magpie-TTS Multilingual](https://soniqo.audio/guides/magpie) | Metin → Konuşma (5 hazır konuşmacı, akış) | MLX / CoreML | 357M (MLX INT8, CoreML INT8) | 9 (CoreML, JA hariç) |
