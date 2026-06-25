@@ -243,8 +243,28 @@ public final class CoreMLForcedAligner {
             Self.dumpLogitsAtPositions(logits: logits, positions: absolutePositions,
                                         classifyNum: classifyNum, top: 5)
         }
-        let rawIndices = Self.argmaxAtPositions(
+        var rawIndices = Self.argmaxAtPositions(
             logits: logits, positions: absolutePositions, classifyNum: classifyNum)
+
+        // Some virtualized cpuOnly runners execute the shipped compiled
+        // decoder as an all-zero output buffer. If the source package is
+        // available, let CoreML compile that package locally and try once more.
+        if textDecoder.shouldRetryFromSourcePackage(rawIndices: rawIndices),
+           let retryLogits = try textDecoder.runSourcePackageFallback(inputsEmbeds: tokenEmbeds) {
+            if ProcessInfo.processInfo.environment["ALIGN_DEBUG"] == "1" {
+                print("[coreml-align-debug] compiled decoder returned all-zero timestamps; "
+                    + "retrying with source mlpackage")
+            }
+            if ProcessInfo.processInfo.environment["ALIGN_NAN_PROBE"] == "1" {
+                Self.dumpLogitsAtPositions(logits: retryLogits, positions: absolutePositions,
+                                            classifyNum: classifyNum, top: 5)
+            }
+            let retryRawIndices = Self.argmaxAtPositions(
+                logits: retryLogits, positions: absolutePositions, classifyNum: classifyNum)
+            if !Self.shouldRetryDecoderFromSourcePackage(rawIndices: retryRawIndices) {
+                rawIndices = retryRawIndices
+            }
+        }
         let t6 = profile ? CFAbsoluteTimeGetCurrent() : 0
 
         // 9. LIS correction + pair into [AlignedWord].
@@ -490,6 +510,11 @@ public final class CoreMLForcedAligner {
         }
         return out
     }
+
+    static func shouldRetryDecoderFromSourcePackage(rawIndices: [Int]) -> Bool {
+        guard !rawIndices.isEmpty else { return false }
+        return rawIndices.allSatisfy { $0 == 0 }
+    }
 }
 
 // MARK: - Audio encoder bundle
@@ -566,14 +591,22 @@ public final class CoreMLForcedAlignerEncoder {
         return EncodedAudio(embeddings: emb, outputLength: outLen)
     }
 
-    static func resolveURL(in directory: URL, name: String) throws -> URL {
+    static func resolveURLs(in directory: URL, name: String) -> (compiled: URL?, package: URL?) {
         let compiled = directory.appendingPathComponent("\(name).mlmodelc", isDirectory: true)
         let pkg = directory.appendingPathComponent("\(name).mlpackage", isDirectory: true)
-        if FileManager.default.fileExists(atPath: compiled.path) { return compiled }
-        if FileManager.default.fileExists(atPath: pkg.path) { return pkg }
+        let compiledURL = FileManager.default.fileExists(atPath: compiled.path) ? compiled : nil
+        let packageURL = FileManager.default.fileExists(atPath: pkg.path) ? pkg : nil
+        return (compiledURL, packageURL)
+    }
+
+    static func resolveURL(in directory: URL, name: String) throws -> URL {
+        let urls = resolveURLs(in: directory, name: name)
+        if let compiled = urls.compiled { return compiled }
+        if let pkg = urls.package { return pkg }
         throw AudioModelError.modelLoadFailed(
             modelId: name,
-            reason: "Neither \(compiled.path) nor \(pkg.path) exists")
+            reason: "Neither \(directory.appendingPathComponent("\(name).mlmodelc").path) "
+            + "nor \(directory.appendingPathComponent("\(name).mlpackage").path) exists")
     }
 }
 
@@ -690,20 +723,38 @@ public final class CoreMLForcedAlignerEmbedding {
 
 public final class CoreMLForcedAlignerDecoder {
     private let model: MLModel
+    private let sourcePackageURL: URL?
+    private let computeUnits: MLComputeUnits
+    private let fallbackLock = NSLock()
+    private var sourcePackageModel: MLModel?
     public let fixedT: Int
 
-    public init(model: MLModel, fixedT: Int = 768) {
+    public init(
+        model: MLModel,
+        fixedT: Int = 768,
+        sourcePackageURL: URL? = nil,
+        computeUnits: MLComputeUnits = .all
+    ) {
         self.model = model
         self.fixedT = fixedT
+        self.sourcePackageURL = sourcePackageURL
+        self.computeUnits = computeUnits
     }
 
     public static func load(
         from directory: URL,
         computeUnits: MLComputeUnits = CoreMLComputeUnitsResolver.resolved(default: .all)
     ) throws -> CoreMLForcedAlignerDecoder {
-        let url = try CoreMLForcedAlignerEncoder.resolveURL(in: directory, name: "text_decoder")
+        let resolvedComputeUnits = CoreMLComputeUnitsResolver.resolved(default: computeUnits)
+        let urls = CoreMLForcedAlignerEncoder.resolveURLs(in: directory, name: "text_decoder")
+        guard let url = urls.compiled ?? urls.package else {
+            throw AudioModelError.modelLoadFailed(
+                modelId: "text_decoder",
+                reason: "Neither \(directory.appendingPathComponent("text_decoder.mlmodelc").path) "
+                + "nor \(directory.appendingPathComponent("text_decoder.mlpackage").path) exists")
+        }
         let cfg = MLModelConfiguration()
-        cfg.computeUnits = computeUnits
+        cfg.computeUnits = resolvedComputeUnits
         let model = try MLModel(contentsOf: url, configuration: cfg)
         // Read fixedT from the model's declared input shape so a runtime
         // override (T=512 / T=1024) doesn't need a separate code path.
@@ -713,7 +764,13 @@ public final class CoreMLForcedAlignerDecoder {
             let shape = constraint.shape.map { $0.intValue }
             if shape.count == 3 && shape[1] > 0 { fixedT = shape[1] }
         }
-        return CoreMLForcedAlignerDecoder(model: model, fixedT: fixedT)
+        let sourcePackageURL = urls.compiled == nil ? nil : urls.package
+        return CoreMLForcedAlignerDecoder(
+            model: model,
+            fixedT: fixedT,
+            sourcePackageURL: sourcePackageURL,
+            computeUnits: resolvedComputeUnits
+        )
     }
 
     public func warmUp() throws {
@@ -724,6 +781,33 @@ public final class CoreMLForcedAlignerDecoder {
     }
 
     public func run(inputsEmbeds: MLMultiArray) throws -> MLMultiArray {
+        return try predict(model: model, inputsEmbeds: inputsEmbeds)
+    }
+
+    func runSourcePackageFallback(inputsEmbeds: MLMultiArray) throws -> MLMultiArray? {
+        guard let sourcePackageURL else { return nil }
+        let fallback = try loadSourcePackageModel(from: sourcePackageURL)
+        return try predict(model: fallback, inputsEmbeds: inputsEmbeds)
+    }
+
+    func shouldRetryFromSourcePackage(rawIndices: [Int]) -> Bool {
+        sourcePackageURL != nil
+            && computeUnits == .cpuOnly
+            && CoreMLForcedAligner.shouldRetryDecoderFromSourcePackage(rawIndices: rawIndices)
+    }
+
+    private func loadSourcePackageModel(from url: URL) throws -> MLModel {
+        fallbackLock.lock()
+        defer { fallbackLock.unlock() }
+        if let sourcePackageModel { return sourcePackageModel }
+        let cfg = MLModelConfiguration()
+        cfg.computeUnits = computeUnits
+        let model = try MLModel(contentsOf: url, configuration: cfg)
+        sourcePackageModel = model
+        return model
+    }
+
+    private func predict(model: MLModel, inputsEmbeds: MLMultiArray) throws -> MLMultiArray {
         let input = try MLDictionaryFeatureProvider(dictionary: [
             "inputs_embeds": MLFeatureValue(multiArray: inputsEmbeds),
         ])

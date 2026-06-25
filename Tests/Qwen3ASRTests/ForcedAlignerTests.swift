@@ -16,6 +16,14 @@ final class ForcedAlignerTests: XCTestCase {
         XCTAssertEqual(words, ["Hello", "world", "test"])
     }
 
+    #if canImport(CoreML)
+    func testCoreMLDecoderSourcePackageRetryDetectsAllZeroTimestamps() {
+        XCTAssertTrue(CoreMLForcedAligner.shouldRetryDecoderFromSourcePackage(rawIndices: [0, 0, 0]))
+        XCTAssertFalse(CoreMLForcedAligner.shouldRetryDecoderFromSourcePackage(rawIndices: []))
+        XCTAssertFalse(CoreMLForcedAligner.shouldRetryDecoderFromSourcePackage(rawIndices: [0, 4, 8]))
+    }
+    #endif
+
     /// Pure Chinese has no whitespace → each Han ideograph becomes its own
     /// token via `split_segment_with_chinese`.
     func testTextPreprocessingChinese() {
