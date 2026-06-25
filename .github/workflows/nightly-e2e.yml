@@ -64,6 +64,7 @@ jobs:
             # (30s, no EnumeratedShapes), so it loads cleanly on the cpuOnly
             # virtualized runner. transcribeAudio window-chunks audio >30s.
             filter: 'ParakeetASRTests|ParakeetStreamingASRTests'
+            modelId: ''
             skip: ''
           - name: magpie-coreml
             # Minimal roundtrip only (testLoadAndSynthesizeEnglish). Skip the
@@ -128,7 +129,12 @@ jobs:
             # the runner, the source of the ~18 min stall) and the latency
             # benchmark (runs align 4x; a perf probe, not a correctness test).
             filter: 'ForcedAlignerTests'
-            skip: 'testForcedAlignerE2EBf16Variant|testForcedAlignerLatency'
+            # Also skip the CoreML aligner E2E on the virtualized macos-15
+            # runner: with SPEECH_COREML_COMPUTE_UNITS=cpuOnly, the encoder
+            # output is healthy but the text decoder returns an all-zero logits
+            # buffer. Recompiling the source mlpackage on the runner produced
+            # the same 0.0s span, while the bundle passes on real Apple Silicon.
+            skip: 'testForcedAlignerE2EBf16Variant|testForcedAlignerLatency|E2ECoreMLForcedAlignerTests'
           - name: qwen3-asr-streaming-mlx-coreml
             # StreamingASR loads ASR-0.6B-4bit + SileroVAD per test method;
             # 3 methods × fresh load = enough memory churn to deserve isolation.
@@ -140,15 +146,26 @@ jobs:
 
     name: ${{ matrix.shard.name }}
     steps:
-      - name: Skip non-matching shard (workflow_dispatch with shard input)
-        if: github.event_name == 'workflow_dispatch' && github.event.inputs.shard != '' && !contains(matrix.shard.name, github.event.inputs.shard)
+      - name: Select shard (workflow_dispatch filter)
+        id: shard-filter
+        env:
+          REQUESTED_SHARD: ${{ github.event.inputs.shard }}
+          SHARD_NAME: ${{ matrix.shard.name }}
         run: |
-          echo "Skipping ${{ matrix.shard.name }} — manual run filtered to '${{ github.event.inputs.shard }}'"
-          exit 0
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] \
+            && [ -n "$REQUESTED_SHARD" ] \
+            && [[ "$SHARD_NAME" != *"$REQUESTED_SHARD"* ]]; then
+            echo "Skipping $SHARD_NAME - manual run filtered to '$REQUESTED_SHARD'"
+            echo "selected=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "selected=true" >> "$GITHUB_OUTPUT"
+          fi
 
       - uses: actions/checkout@v5
+        if: steps.shard-filter.outputs.selected == 'true'
 
       - name: Cache SwiftPM build
+        if: steps.shard-filter.outputs.selected == 'true'
         uses: actions/cache@v5
         with:
           path: .build
@@ -158,22 +175,33 @@ jobs:
             spm-${{ runner.os }}-
 
       - name: Build debug + tests
+        if: steps.shard-filter.outputs.selected == 'true'
         run: swift build --build-tests --disable-sandbox
 
       - name: Build MLX metallib
+        if: steps.shard-filter.outputs.selected == 'true'
         run: ./scripts/build_mlx_metallib.sh debug
 
       - name: Copy metallib into test bundles
+        if: steps.shard-filter.outputs.selected == 'true'
         run: |
           ARCH="$(uname -m)-apple-macosx"
-          for BUNDLE in .build/$ARCH/debug/*.xctest/Contents/MacOS; do
+          for BUNDLE in .build/"$ARCH"/debug/*.xctest/Contents/MacOS; do
             [ -d "$BUNDLE" ] && cp .build/debug/mlx.metallib "$BUNDLE/" 2>/dev/null || true
           done
 
       - name: Disk space before tests
+        if: steps.shard-filter.outputs.selected == 'true'
         run: df -h /
 
+      - name: Relax audio-infra HuggingFace stall timeout
+        if: steps.shard-filter.outputs.selected == 'true' && matrix.shard.name == 'audio-infra'
+        run: |
+          echo "HF_DOWNLOAD_STALL_TIMEOUT=180" >> "$GITHUB_ENV"
+          echo "audio-infra downloads get 180s of no-progress patience"
+
       - name: Run E2E tests
+        if: steps.shard-filter.outputs.selected == 'true'
         env:
           # Per-shard model override (parakeet -> fixed-shape iOS-5s); empty for
           # shards that don't set matrix.shard.modelId.
@@ -186,7 +214,7 @@ jobs:
           fi
 
       - name: Dump crash reports
-        if: always()
+        if: always() && steps.shard-filter.outputs.selected == 'true'
         run: |
           shopt -s nullglob
           found=0
@@ -198,11 +226,11 @@ jobs:
           [ "$found" = 0 ] && echo "(no crash reports — process exited cleanly or was killed by timeout)"
 
       - name: Disk space after tests
-        if: always()
+        if: always() && steps.shard-filter.outputs.selected == 'true'
         run: df -h /
 
       - name: Show model cache footprint
-        if: always()
+        if: always() && steps.shard-filter.outputs.selected == 'true'
         run: |
           du -sh ~/Library/Caches/qwen3-speech 2>/dev/null || echo "(no cache)"
 
