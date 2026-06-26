@@ -12,10 +12,10 @@ let package = Package(
         .executableTarget(
             name: "PersonaPlexDemo",
             dependencies: [
-                .product(name: "PersonaPlex", package: "speech-swift"),
-                .product(name: "Qwen3ASR", package: "speech-swift"),
-                .product(name: "AudioCommon", package: "speech-swift"),
-                .product(name: "SpeechVAD", package: "speech-swift"),
+                .product(name: "PersonaPlex", package: "soniqo-speech-swift"),
+                .product(name: "Qwen3ASR", package: "soniqo-speech-swift"),
+                .product(name: "AudioCommon", package: "soniqo-speech-swift"),
+                .product(name: "SpeechVAD", package: "soniqo-speech-swift"),
             ],
             path: "PersonaPlexDemo",
             exclude: ["PersonaPlexDemo.entitlements", "Info.plist"]

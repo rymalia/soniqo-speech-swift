@@ -91,6 +91,7 @@ public final class StreamingVADProcessor {
             let prob = model.processChunk(chunk)
             let time = Float(chunkCount) * chunkDuration
             chunkCount += 1
+            if chunkCount % 10 == 0 { print("[VAD-DEBUG] t=\(String(format: "%.2f", time))s prob=\(String(format: "%.3f", prob)) state=\(state)") }
 
             events.append(contentsOf: processProb(prob, time: time))
         }

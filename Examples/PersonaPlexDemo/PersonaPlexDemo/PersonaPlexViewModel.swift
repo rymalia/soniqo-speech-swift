@@ -81,9 +81,7 @@ final class PersonaPlexViewModel {
         do {
             let loadStart = CFAbsoluteTimeGetCurrent()
 
-            let m = try await PersonaPlexModel.fromPretrained(
-                modelId: PersonaPlexModel.modelId8bit
-            ) { [weak self] progress, status in
+            let m = try await PersonaPlexModel.fromPretrained() { [weak self] progress, status in
                 DispatchQueue.main.async {
                     self?.loadingStatus = "\(status) (\(Int(progress * 100))%)"
                 }
@@ -94,7 +92,7 @@ final class PersonaPlexViewModel {
             let warmTime = CFAbsoluteTimeGetCurrent() - warmStart
 
             let cacheDir = try HuggingFaceDownloader.getCacheDirectory(
-                for: PersonaPlexModel.modelId8bit
+                for: PersonaPlexModel.defaultModelId
             )
             let spmPath = cacheDir.appendingPathComponent("tokenizer_spm_32k_3.model").path
             if FileManager.default.fileExists(atPath: spmPath) {
