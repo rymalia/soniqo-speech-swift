@@ -49,12 +49,7 @@ final class E2EIndicMioTTSTests: XCTestCase {
 
     }
 
-    func testRawReferenceAudioSynthesizesWhenWavLMBundleIsAvailable() async throws {
-        let env = ProcessInfo.processInfo.environment
-        guard let wavlm = env["INDIC_MIO_WAVLM_BUNDLE"], !wavlm.isEmpty else {
-            throw XCTSkip("Set INDIC_MIO_WAVLM_BUNDLE to run Indic-Mio raw-reference cloning E2E")
-        }
-
+    func testRawReferenceAudioSynthesizesFromPublishedWavLMCompanion() async throws {
         let model = try await loadModel()
         let reference = sineReference(sampleRate: model.sampleRate, seconds: 1.0)
         let embedding = try await model.extractGlobalEmbedding(

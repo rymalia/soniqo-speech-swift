@@ -38,8 +38,8 @@ bundled MioCodec weights include the global encoder and decoder path. Raw
 reference waveform cloning now runs the WavLM-base-plus SSL feature extractor,
 averages the first two hidden layers, and feeds the result through MioCodec's
 global ConvNeXt encoder. The runtime resolves the WavLM companion from
-`aufklarer/WavLM-Base-Plus-MLX-fp16`, or from `INDIC_MIO_WAVLM_BUNDLE` when
-testing a local export.
+`aufklarer/WavLM-Base-Plus-MLX-fp16`; `INDIC_MIO_WAVLM_BUNDLE` can override it
+for local export testing.
 
 E2E coverage currently loads `aufklarer/Indic-Mio-MLX-fp16`, runs Hindi text
 with an emotion tag through Qwen3 speech-token generation, decodes MioCodec
@@ -92,9 +92,9 @@ format:
      CLI synthesis are wired under `indic-mio`.
    - E2E coverage is present for Hindi text plus `<happy>`, including Qwen3ASR
      keyword recovery over synthesized audio.
-   - Raw reference cloning is wired through the WavLM companion bundle.
-   - Next: publish/verify the WavLM safetensors companion and add Studio clone
-     selection copy that explains the extra first-run download.
+   - Raw reference cloning is wired through the published WavLM companion bundle.
+   - Next: add Studio clone selection copy that explains the extra first-run
+     download.
 
 2. **Svara-TTS v1**
    - Validate whether its speaker/adaptation path can satisfy Studio's
