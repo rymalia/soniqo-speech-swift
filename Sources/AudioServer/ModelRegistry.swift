@@ -9,6 +9,7 @@ import NemotronStreamingASR
 import OmnilingualASR
 import KokoroTTS
 import VoxCPM2TTS
+import IndicMioTTS
 import MagpieTTS
 import MagpieTTSCoreML
 import VibeVoiceTTS
@@ -124,10 +125,23 @@ public let MODEL_REGISTRY: [ModelVariant] = [
           modelId: KokoroTTSModel.defaultModelId,
           aliases: ["kokoro", "kokoro-82m"],
           kind: .tts),
-    .init(name: "cosyvoice-3-0.5b-mlx-int4",
+    .init(name: "cosyvoice-3-0.5b-mlx-bf16",
           engine: "cosyvoice",
           modelId: CosyVoiceTTSModel.defaultModelId,
-          aliases: ["cosyvoice", "cosyvoice-3", "cosyvoice-0.5b"],
+          aliases: [
+              "cosyvoice", "cosyvoice-3", "cosyvoice-0.5b",
+              "cosyvoice-bf16", "cosyvoice-16bit", "cosyvoice-unquantized",
+          ],
+          kind: .tts),
+    .init(name: "cosyvoice-3-0.5b-mlx-8bit",
+          engine: "cosyvoice",
+          modelId: "aufklarer/CosyVoice3-0.5B-MLX-8bit",
+          aliases: ["cosyvoice-8bit"],
+          kind: .tts),
+    .init(name: "cosyvoice-3-0.5b-mlx-8bit-full",
+          engine: "cosyvoice",
+          modelId: "aufklarer/CosyVoice3-0.5B-MLX-8bit-full",
+          aliases: ["cosyvoice-8bit-full"],
           kind: .tts),
     .init(name: "voxcpm2-mlx-bf16",
           engine: "voxcpm2",
@@ -138,6 +152,11 @@ public let MODEL_REGISTRY: [ModelVariant] = [
           engine: "voxcpm2",
           modelId: VoxCPM2TTSModel.int8ModelId,
           aliases: ["voxcpm2-int8"],
+          kind: .tts),
+    .init(name: "indic-mio-mlx-fp16",
+          engine: "indic-mio",
+          modelId: IndicMioTTSModel.defaultModelId,
+          aliases: ["indic-mio", "mio", "hindi-emotion"],
           kind: .tts),
     .init(name: "qwen3-tts-1.7b-mlx-bf16",
           engine: "qwen3-tts",
