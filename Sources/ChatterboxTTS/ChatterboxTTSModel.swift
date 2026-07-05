@@ -19,12 +19,15 @@ import MLXNN
 public enum ChatterboxModelError: Error, LocalizedError {
     case missingFile(String)
     case unsupportedLanguage(String)
+    case invalidText(String)
 
     public var errorDescription: String? {
         switch self {
         case let .missingFile(p): return "Chatterbox: required file not found: \(p)"
         case let .unsupportedLanguage(l):
             return "Chatterbox: language '\(l)' is not supported"
+        case let .invalidText(message):
+            return "Chatterbox: \(message)"
         }
     }
 }
@@ -204,7 +207,16 @@ public final class ChatterboxTTSModel {
             for: s3TokenizerModelId, cacheDirName: "chatterbox-s3-tokenizer")
 
         let fm = FileManager.default
-        if !fm.fileExists(atPath: bundleDir.appendingPathComponent("model.safetensors").path) {
+        let requiredBundleFiles = [
+            "model.safetensors",
+            "config.json",
+            "tokenizer.json",
+            "Cangjie5_TC.json",
+        ]
+        let bundleNeedsRepair = requiredBundleFiles.contains {
+            !fm.fileExists(atPath: bundleDir.appendingPathComponent($0).path)
+        }
+        if bundleNeedsRepair {
             progressHandler?(0.0, "Downloading \(modelId)...")
             // No `.safetensors` in additionalFiles: that keeps downloadWeights'
             // automatic `*.safetensors` glob enabled, which fetches the bundle's
@@ -212,7 +224,7 @@ public final class ChatterboxTTSModel {
             // `.safetensors` here would disable that glob and drop model.safetensors.
             try await HuggingFaceDownloader.downloadWeights(
                 modelId: modelId, to: bundleDir,
-                additionalFiles: ["config.json", "tokenizer.json"],
+                additionalFiles: ["config.json", "tokenizer.json", "Cangjie5_TC.json"],
                 offlineMode: offlineMode
             ) { progressHandler?($0 * 0.7, "Downloading model...") }
         }
@@ -278,7 +290,7 @@ public final class ChatterboxTTSModel {
     ///   - referenceSamples: reference clip, mono.
     ///   - sampleRate: sample rate of `referenceSamples`.
     ///   - text: text to speak.
-    ///   - languageId: e.g. "en", "ar", "hi", "de", "es", "fr", "it", "pt".
+    ///   - languageId: one of ``MTLTokenizer/supportedLanguages``.
     ///   - exaggeration: emotion-advance scalar (T3 `emotion_adv`).
     ///   - cfgWeight: T3 classifier-free-guidance weight.
     ///   - temperature: T3 sampling temperature (0 = greedy).
@@ -297,7 +309,7 @@ public final class ChatterboxTTSModel {
         cfgWeight: Float = 0.5
     ) throws -> [Float] {
         let lang = languageId.lowercased()
-        guard MTLTokenizer.frontendFreeLanguages.contains(lang) else {
+        guard MTLTokenizer.supportedLanguages.contains(lang) else {
             throw ChatterboxModelError.unsupportedLanguage(lang)
         }
 
@@ -324,7 +336,13 @@ public final class ChatterboxTTSModel {
         let t3PromptTokens = Array(s3gen.tokenizer.encode(ref16kEnc).prefix(Self.speechCondPromptLen))
 
         // --- text tokenization: [sot] + ids + [eot] ---
-        let ids = tokenizer.encode(text, languageId: lang)
+        let ids: [Int]
+        do {
+            ids = try tokenizer.encodeStrict(text, languageId: lang)
+        } catch ChatterboxTokenizerError.hebrewRequiresDiacritics {
+            throw ChatterboxModelError.invalidText(
+                "Hebrew input must include niqqud/diacritics; automatic Dicta diacritization is not bundled yet")
+        }
         let textTokens = [Self.startTextToken] + ids + [Self.stopTextToken]
 
         // --- T3: text -> speech tokens ---

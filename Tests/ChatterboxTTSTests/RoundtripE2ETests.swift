@@ -11,7 +11,7 @@ import XCTest
 /// and the reference speaker embedding — is buildable today and gated here.
 /// The full text→audio→verify roundtrip is scaffolded and activates once the T3
 /// (text→speech-token) and S3Gen (speech-token→waveform) stages land.
-final class RoundtripE2ETests: XCTestCase {
+final class E2ERoundtripTests: XCTestCase {
     private let veWeights = "/tmp/cbx_ve.safetensors"
     private let veInput = "/tmp/cbx_ve_input16k.f32"
 
@@ -79,8 +79,8 @@ final class RoundtripE2ETests: XCTestCase {
                           to: "/tmp/cbx_swift_synth.wav")
     }
 
-    /// Synthesize across languages (en/ar/hi — the multilingual point of Chatterbox)
-    /// and write each to /tmp/cbx_swift_<lang>.wav for ASR verification.
+    /// Synthesize across languages, including frontend-heavy scripts, and write
+    /// each to /tmp/cbx_swift_<lang>.wav for ASR verification.
     func testMultilingualSynthesis() throws {
         let fm = FileManager.default
         let bundleDir = "/tmp/cbx-fp16"
@@ -100,7 +100,10 @@ final class RoundtripE2ETests: XCTestCase {
         let cases: [(String, String)] = [
             ("en", "Hello there, this is a cloned voice."),
             ("ar", "مرحبا، هذا صوت مستنسخ."),
+            ("he", "שָׁלוֹם, זֶה קוֹל מְשֻׁבָּט."),
             ("hi", "नमस्ते, यह एक क्लोन की गई आवाज़ है।"),
+            ("ja", "今日は音声が明瞭で理解しやすいかを確認します。"),
+            ("zh", "今天我们测试中文语音是否清楚且容易理解。"),
         ]
         for (lang, text) in cases {
             let audio = try model.clone(
