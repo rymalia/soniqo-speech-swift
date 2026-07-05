@@ -1051,6 +1051,7 @@ public struct SpeakCommand: ParsableCommand {
                         voiceProfile: profile,
                         language: effectiveLanguage,
                         instruction: instruction,
+                        seed: self.seed,
                         verbose: verbose
                     )
                 } else {

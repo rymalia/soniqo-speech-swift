@@ -175,11 +175,15 @@ extension CosyVoiceTTSModel {
         language: String = "english",
         instruction: String = "You are a helpful assistant.",
         segmentGapSeconds: Float = 0.2,
+        seed: UInt64? = nil,
         verbose: Bool = false
     ) -> [Float] {
         let segments = Self.splitForLongForm(text)
         if segments.count <= 1 {
-            return synthesize(
+            if let seed {
+                MLX.seed(seed)
+            }
+            let samples = synthesize(
                 text: text,
                 language: language,
                 instruction: instruction,
@@ -189,16 +193,16 @@ extension CosyVoiceTTSModel {
                 promptText: voiceProfile.promptText,
                 verbose: verbose
             )
+            return Self.cleanCloneOutput(samples, sampleRate: config.sampleRate)
         }
 
-        let gap = [Float](
-            repeating: 0,
-            count: Int(segmentGapSeconds * Float(config.sampleRate))
-        )
-        var output: [Float] = []
+        var renderedSegments: [[Float]] = []
         for (i, seg) in segments.enumerated() {
             if verbose {
                 print("  Long-form segment \(i + 1)/\(segments.count): \"\(seg)\"")
+            }
+            if let seed {
+                MLX.seed(seed)
             }
             let samples = synthesize(
                 text: seg,
@@ -210,12 +214,106 @@ extension CosyVoiceTTSModel {
                 promptText: voiceProfile.promptText,
                 verbose: verbose
             )
-            if !output.isEmpty && !samples.isEmpty {
-                output.append(contentsOf: gap)
+            let cleaned = Self.trimClonePromptLeak(samples, sampleRate: config.sampleRate)
+            if !cleaned.isEmpty {
+                renderedSegments.append(cleaned)
             }
-            output.append(contentsOf: samples)
         }
+        return Self.stitchLongFormSegments(
+            renderedSegments,
+            sampleRate: config.sampleRate,
+            gapSeconds: segmentGapSeconds
+        )
+    }
+
+    /// Match speech-studio's CosyVoice clone cleanup: the prompt-token +
+    /// prompt-feat path trims the nominal prompt region internally, but HiFi-GAN
+    /// can smear a short fragment of prompt audio past that boundary. Dropping
+    /// the first 300 ms removes that audible leak without changing text-only TTS.
+    static func trimClonePromptLeak(
+        _ samples: [Float],
+        sampleRate: Int,
+        trimSeconds: Float = 0.30
+    ) -> [Float] {
+        let trimCount = max(0, Int(trimSeconds * Float(sampleRate)))
+        guard trimCount > 0, samples.count > trimCount * 2 else {
+            return samples
+        }
+        return Array(samples.dropFirst(trimCount))
+    }
+
+    /// Final cleanup for a single cloned render. CosyVoice's vocoder can leave
+    /// a high-amplitude terminal sample when generation stops, which becomes an
+    /// audible end click when the WAV closes. Fade only the cloned output edge;
+    /// text-only TTS keeps its raw model output.
+    static func cleanCloneOutput(
+        _ samples: [Float],
+        sampleRate: Int,
+        edgeFadeSeconds: Float = 0.03
+    ) -> [Float] {
+        var cleaned = trimClonePromptLeak(samples, sampleRate: sampleRate)
+        let fadeCount = max(0, Int(edgeFadeSeconds * Float(sampleRate)))
+        if fadeCount > 0 {
+            applyFadeIn(&cleaned, count: fadeCount)
+            applyFadeOut(&cleaned, count: fadeCount)
+        }
+        return cleaned
+    }
+
+    /// Stitch independently generated long-form segments without hard waveform
+    /// discontinuities at the inserted silence gaps. Every rendered output —
+    /// including a lone surviving segment — leaves with a tail fade, so no
+    /// path can end on a high-amplitude sample (an audible end click).
+    static func stitchLongFormSegments(
+        _ segments: [[Float]],
+        sampleRate: Int,
+        gapSeconds: Float,
+        fadeSeconds: Float = 0.03
+    ) -> [Float] {
+        let nonEmptySegments = segments.filter { !$0.isEmpty }
+        guard !nonEmptySegments.isEmpty else { return [] }
+
+        let gapCount = max(0, Int(gapSeconds * Float(sampleRate)))
+        let fadeCount = max(0, Int(fadeSeconds * Float(sampleRate)))
+        var output: [Float] = []
+
+        for (index, originalSegment) in nonEmptySegments.enumerated() {
+            var segment = originalSegment
+            if fadeCount > 0 {
+                if index > 0 {
+                    Self.applyFadeIn(&segment, count: fadeCount)
+                }
+                Self.applyFadeOut(&segment, count: fadeCount)
+            }
+
+            if index > 0 && gapCount > 0 {
+                output.append(contentsOf: repeatElement(Float(0), count: gapCount))
+            }
+            output.append(contentsOf: segment)
+        }
+
         return output
+    }
+
+    private static func applyFadeIn(_ samples: inout [Float], count: Int) {
+        let n = min(count, samples.count)
+        guard n > 0 else { return }
+        for i in 0..<n {
+            let t = Float(i + 1) / Float(n + 1)
+            let scale = Float(sin(Double(t * .pi / 2)))
+            samples[i] *= scale
+        }
+    }
+
+    private static func applyFadeOut(_ samples: inout [Float], count: Int) {
+        let n = min(count, samples.count)
+        guard n > 0 else { return }
+        let start = samples.count - n
+        for i in 0..<n {
+            let t = Float(i + 1) / Float(n + 1)
+            let scale = Float(cos(Double(t * .pi / 2)))
+            samples[start + i] *= scale
+        }
     }
 
     /// Split text into segments small enough that the LLM stays inside its
@@ -225,7 +323,7 @@ extension CosyVoiceTTSModel {
     /// are merged so we don't synthesise a 2-word segment unnecessarily.
     static func splitForLongForm(_ text: String) -> [String] {
         let maxWordsPerSegment = 25
-        let minWordsPerSegment = 4
+        let minWordsPerSegment = 6
 
         let input = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !input.isEmpty else { return [] }
