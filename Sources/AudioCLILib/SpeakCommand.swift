@@ -899,6 +899,7 @@ public struct SpeakCommand: ParsableCommand {
                         audio: refSamples16k,
                         sampleRate: 16000,
                         speechTokenizer: tokenizer,
+                        camppSpeaker: campp,
                         referenceTranscript: cosyReferenceTranscript
                     )
                     if let p = defaultVoiceProfile {

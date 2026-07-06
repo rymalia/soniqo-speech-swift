@@ -214,9 +214,8 @@ extension CosyVoiceTTSModel {
                 promptText: voiceProfile.promptText,
                 verbose: verbose
             )
-            let cleaned = Self.trimClonePromptLeak(samples, sampleRate: config.sampleRate)
-            if !cleaned.isEmpty {
-                renderedSegments.append(cleaned)
+            if !samples.isEmpty {
+                renderedSegments.append(samples)
             }
         }
         return Self.stitchLongFormSegments(
@@ -226,32 +225,18 @@ extension CosyVoiceTTSModel {
         )
     }
 
-    /// Match speech-studio's CosyVoice clone cleanup: the prompt-token +
-    /// prompt-feat path trims the nominal prompt region internally, but HiFi-GAN
-    /// can smear a short fragment of prompt audio past that boundary. Dropping
-    /// the first 300 ms removes that audible leak without changing text-only TTS.
-    static func trimClonePromptLeak(
-        _ samples: [Float],
-        sampleRate: Int,
-        trimSeconds: Float = 0.30
-    ) -> [Float] {
-        let trimCount = max(0, Int(trimSeconds * Float(sampleRate)))
-        guard trimCount > 0, samples.count > trimCount * 2 else {
-            return samples
-        }
-        return Array(samples.dropFirst(trimCount))
-    }
-
     /// Final cleanup for a single cloned render. CosyVoice's vocoder can leave
     /// a high-amplitude terminal sample when generation stops, which becomes an
     /// audible end click when the WAV closes. Fade only the cloned output edge;
-    /// text-only TTS keeps its raw model output.
+    /// text-only TTS keeps its raw model output. (The prompt region is sliced
+    /// off in the mel domain before vocoding — upstream parity — so no
+    /// audio-domain prompt trim is needed here.)
     static func cleanCloneOutput(
         _ samples: [Float],
         sampleRate: Int,
         edgeFadeSeconds: Float = 0.03
     ) -> [Float] {
-        var cleaned = trimClonePromptLeak(samples, sampleRate: sampleRate)
+        var cleaned = samples
         let fadeCount = max(0, Int(edgeFadeSeconds * Float(sampleRate)))
         if fadeCount > 0 {
             applyFadeIn(&cleaned, count: fadeCount)
@@ -261,9 +246,11 @@ extension CosyVoiceTTSModel {
     }
 
     /// Stitch independently generated long-form segments without hard waveform
-    /// discontinuities at the inserted silence gaps. Every rendered output —
-    /// including a lone surviving segment — leaves with a tail fade, so no
-    /// path can end on a high-amplitude sample (an audible end click).
+    /// discontinuities. Every segment edge is faded — including the FIRST
+    /// segment's head: the vocoder starts each render from zero left-context,
+    /// so the opening samples sit mid-phonation and an unfaded head is an
+    /// audible click at utterance start (mirrors `cleanCloneOutput`, which
+    /// fades both edges of a single-segment render).
     static func stitchLongFormSegments(
         _ segments: [[Float]],
         sampleRate: Int,
@@ -280,9 +267,7 @@ extension CosyVoiceTTSModel {
         for (index, originalSegment) in nonEmptySegments.enumerated() {
             var segment = originalSegment
             if fadeCount > 0 {
-                if index > 0 {
-                    Self.applyFadeIn(&segment, count: fadeCount)
-                }
+                Self.applyFadeIn(&segment, count: fadeCount)
                 Self.applyFadeOut(&segment, count: fadeCount)
             }
 

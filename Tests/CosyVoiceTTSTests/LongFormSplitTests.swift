@@ -159,18 +159,17 @@ final class LongFormSplitTests: XCTestCase {
         XCTAssertLessThan(abs(stitched[100] - stitched[99]), 0.1)
         XCTAssertLessThan(abs(stitched[300] - stitched[299]), 0.1)
 
-        // The first segment starts untouched, while the final segment also gets
-        // a short tail fade to avoid end-of-file pops.
-        XCTAssertEqual(stitched[0], 1.0)
+        // Every edge is faded — including the first segment's head (the
+        // vocoder starts from zero left-context, so an unfaded head is an
+        // audible click at utterance start) and the final tail.
+        XCTAssertLessThan(abs(stitched[0]), 0.1)
         XCTAssertLessThan(abs(stitched[399]), 0.1)
     }
 
     func testStitchLongFormSegmentsFadesTailOfSingleSegment() {
         // Regression: a multi-segment split can render down to ONE surviving
-        // segment. That path must still leave with a tail fade — otherwise the
-        // end-click this stitcher exists to prevent comes back on exactly that
-        // path. The head stays untouched, matching the first segment of any
-        // multi-segment stitch.
+        // segment. That path must still fade both edges — the head (start
+        // click) and the tail (end click) — matching `cleanCloneOutput`.
         let single = [Float](repeating: 1.0, count: 100)
         let stitched = CosyVoiceTTSModel.stitchLongFormSegments(
             [single],
@@ -179,15 +178,15 @@ final class LongFormSplitTests: XCTestCase {
             fadeSeconds: 0.03
         )
         XCTAssertEqual(stitched.count, 100)
-        XCTAssertEqual(stitched[0], 1.0)
-        XCTAssertEqual(stitched[69], 1.0)
+        XCTAssertLessThan(abs(stitched[0]), 0.1)
+        XCTAssertEqual(stitched[69], 1.0, "interior samples must be untouched")
         XCTAssertLessThan(abs(stitched[99]), 0.1)
     }
 
     func testStitchLongFormSegmentsCollapsedMultiSegmentStillFades() {
         // Two rendered segments where one came back empty — the collapsed
         // result must behave like the single-segment case above, not skip
-        // the fade via an early exit.
+        // the fades via an early exit.
         let survivor = [Float](repeating: -1.0, count: 100)
         let stitched = CosyVoiceTTSModel.stitchLongFormSegments(
             [[], survivor],
@@ -196,11 +195,13 @@ final class LongFormSplitTests: XCTestCase {
             fadeSeconds: 0.03
         )
         XCTAssertEqual(stitched.count, 100)
-        XCTAssertEqual(stitched[0], -1.0)
+        XCTAssertLessThan(abs(stitched[0]), 0.1)
         XCTAssertLessThan(abs(stitched[99]), 0.1)
     }
 
-    func testCleanCloneOutputTrimsPromptLeakAndFadesTail() {
+    func testCleanCloneOutputFadesEdgesWithoutTrimming() {
+        // The prompt region is sliced off in the mel domain before vocoding,
+        // so cleanup must NOT drop samples — only fade the edges.
         let samples = [Float](repeating: 1.0, count: 700)
         let cleaned = CosyVoiceTTSModel.cleanCloneOutput(
             samples,
@@ -208,8 +209,9 @@ final class LongFormSplitTests: XCTestCase {
             edgeFadeSeconds: 0.03
         )
 
-        XCTAssertEqual(cleaned.count, 400)
+        XCTAssertEqual(cleaned.count, 700)
         XCTAssertLessThan(abs(cleaned.first ?? 1.0), 0.1)
         XCTAssertLessThan(abs(cleaned.last ?? 1.0), 0.1)
+        XCTAssertEqual(cleaned[350], 1.0, "interior samples must be untouched")
     }
 }

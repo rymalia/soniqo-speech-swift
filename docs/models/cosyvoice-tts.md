@@ -37,8 +37,9 @@ Three-stage pipeline: LLM → DiT Flow Matching → HiFi-GAN Vocoder → 24kHz a
 - CLI: `--voice-sample reference.wav`
 - Long-form cloning splits text into sentence segments, seeds MLX before each
   segment when `seed:` is passed (`--seed` on the CLI) so repeated runs are
-  reproducible, trims the ~300 ms prompt leak per segment, and stitches with
-  edge fades so no output path ends on an audible click
+  reproducible, and stitches with edge fades so no output path ends on an
+  audible click. The prompt region is sliced off in the mel domain before
+  vocoding (upstream parity), so no audio-domain prompt trim is applied
 
 ## Multi-Speaker Dialogue
 - `DialogueParser` parses `[S1] text [S2] text` speaker tags into `DialogueSegment` structs
