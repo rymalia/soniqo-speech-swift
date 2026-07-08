@@ -76,7 +76,7 @@ public final class ChatterboxFlashTokenizer: @unchecked Sendable {
     }
 
     private func tokenize(_ text: String) -> [Int] {
-        let chars = Array(text)
+        let chars = Array(text.replacingOccurrences(of: " ", with: "[SPACE]"))
         var ids: [Int] = []
         var buffer: [Character] = []
 

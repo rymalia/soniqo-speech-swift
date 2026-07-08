@@ -72,6 +72,7 @@ and the S3Gen audio back half as compiled Core ML graphs:
 
 - `t3/ConditioningEncoder.mlmodelc`
 - `t3/TextPrefill.mlmodelc`
+- `t3/NullTextPrefill.mlmodelc` (optional; required only for `cfgScale > 0`)
 - `t3/BlockDecoder.mlmodelc`
 - `audio/FlowSpeakerProjector.mlmodelc`
 - `audio/FlowEncoder.mlmodelc`
@@ -79,8 +80,9 @@ and the S3Gen audio back half as compiled Core ML graphs:
 - `audio/HiFTVocoder.mlmodelc`
 
 The Swift runtime owns the host-side Flash loop: BPE text tokenization,
-fixed-length text padding, PMI ranking against `uncond_block_prior.npy`,
-block unmask scheduling, EOS trimming, and S3Gen waveform synthesis.
+compact T3 prefix planning, optional classifier-free guidance through
+`NullTextPrefill`, PMI ranking against `uncond_block_prior.npy`, block unmask
+scheduling, EOS trimming, and S3Gen waveform synthesis.
 
 ```swift
 import ChatterboxTTS
@@ -103,18 +105,31 @@ let audio24k = try flash.generate(
 Voice cloning is supported when the caller provides reference conditioning
 tensors. The convenience bridge above uses the existing MLX VoiceEncoder,
 S3Tokenizer, and S3Gen reference encoder to create those tensors from a
-reference waveform. Fully Core ML `ref.wav -> cloned wav` is not complete yet
-because the reference-audio encoders are not included in the Flash Core ML
-bundle.
+reference waveform. `ChatterboxTTSModel.fromPretrained(localDir:
+s3TokenizerWeights:)` accepts either the standalone converted S3TokenizerV2
+weights or Flash `s3gen.safetensors`; for the latter it extracts and converts
+the `tokenizer.*` tensors.
 
-The exact Chatterbox Flash CFG null branch requires a separate zero-text prefill
-graph, so the Swift Core ML path currently supports `cfgScale == 0`. Passing a
-positive CFG scale fails fast instead of using an approximate null branch.
+Fully Core ML `ref.wav -> cloned wav` is not complete yet because the
+reference-audio encoders are not included in the Flash Core ML bundle.
+Generated speech defaults to `cfgScale: 0.0` for compatibility with bundles
+that do not include a null-branch graph. Passing a positive `cfgScale` requires
+`t3/NullTextPrefill.mlmodelc` in the bundle.
+
+Voice-cloning quality also depends on the exported S3Gen audio bucket. The
+audio graph consumes `prompt_token + generated_speech_tokens`; the full MLX
+path gives S3Gen up to 10 seconds of prompt audio, while Flash Core ML caps the
+reference prompt to 6 seconds so the public 192-token audio export still leaves
+room for generated speech. A 192-token audio export is enough for smoke tests,
+but it forces short utterances and limited prompt audio. Use a larger audio
+export, for example `token_len=512` and `mel_len=1024`, when validating speaker
+similarity.
 
 Opt-in E2E tests:
 
 ```bash
 CHATTERBOX_FLASH_COREML_PATH=/path/to/Chatterbox-Flash-CoreML \
+CHATTERBOX_REFERENCE_WAV=/path/to/reference.wav \
   swift test --filter E2EChatterboxFlashCoreMLTests
 ```
 
