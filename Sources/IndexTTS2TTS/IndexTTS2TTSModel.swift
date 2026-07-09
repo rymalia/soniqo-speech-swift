@@ -1,6 +1,5 @@
 import AudioCommon
 import Foundation
-import VoiceCloneTTSCommon
 
 public final class IndexTTS2TTSModel: SpeechGenerationModel, ModelMemoryManageable, @unchecked Sendable {
     public static let defaultModelId = "aufklarer/IndexTTS2-MLX-fp16"
@@ -89,16 +88,16 @@ public final class IndexTTS2TTSModel: SpeechGenerationModel, ModelMemoryManageab
         baseRequiredFiles + auxiliaryModels.flatMap(\.files)
 
     public let bundleDirectory: URL
-    public let manifest: VoiceCloneExportManifest
+    public let manifest: IndexTTS2ExportManifest
     public let sampleRate: Int
     public let runtimeConfig: IndexTTS2RuntimeConfig?
     public let tokenizer: IndexTTS2Tokenizer?
 
-    private let bundleInfo: VoiceCloneBundleInfo
+    private let bundleInfo: IndexTTS2BundleInfo
     private var nativeRuntime: IndexTTS2NativeRuntime?
     private var loaded = true
 
-    private init(bundleInfo: VoiceCloneBundleInfo) {
+    private init(bundleInfo: IndexTTS2BundleInfo) {
         self.bundleInfo = bundleInfo
         self.bundleDirectory = bundleInfo.directory
         self.manifest = bundleInfo.manifest
@@ -114,7 +113,7 @@ public final class IndexTTS2TTSModel: SpeechGenerationModel, ModelMemoryManageab
         offlineMode: Bool = false,
         progressHandler: ((Double, String) -> Void)? = nil
     ) async throws -> IndexTTS2TTSModel {
-        let directory = try await VoiceCloneBundleLoader.download(
+        let directory = try await IndexTTS2BundleLoader.download(
             modelId: modelId,
             requiredFiles: requiredFiles,
             cacheDir: cacheDir,
@@ -129,7 +128,7 @@ public final class IndexTTS2TTSModel: SpeechGenerationModel, ModelMemoryManageab
         _ directory: URL,
         progressHandler: ((Double, String) -> Void)? = nil
     ) async throws -> IndexTTS2TTSModel {
-        let info = try VoiceCloneBundleLoader.load(
+        let info = try IndexTTS2BundleLoader.load(
             from: directory,
             expectedModelKey: modelKey,
             progressHandler: progressHandler)

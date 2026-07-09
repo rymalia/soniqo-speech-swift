@@ -86,7 +86,7 @@ Default semantic generation uses upstream-style beam sampling with `beams=3`,
 Fast unit tests avoid model downloads:
 
 ```bash
-swift test --filter VoiceCloneCandidateTTSTests
+swift test --filter IndexTTS2TTSTests
 ```
 
 The expanded-bundle E2E test is opt-in because it validates a multi-GB bundle:

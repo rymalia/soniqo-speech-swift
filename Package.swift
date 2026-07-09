@@ -41,20 +41,8 @@ let package = Package(
             targets: ["FishAudioTTS"]
         ),
         .library(
-            name: "VoiceCloneTTSCommon",
-            targets: ["VoiceCloneTTSCommon"]
-        ),
-        .library(
             name: "IndexTTS2TTS",
             targets: ["IndexTTS2TTS"]
-        ),
-        .library(
-            name: "HiggsAudioTTS",
-            targets: ["HiggsAudioTTS"]
-        ),
-        .library(
-            name: "F5TTS",
-            targets: ["F5TTS"]
         ),
         .library(
             name: "PersonaPlex",
@@ -320,34 +308,13 @@ let package = Package(
             ]
         ),
         .target(
-            name: "VoiceCloneTTSCommon",
-            dependencies: [
-                "AudioCommon",
-            ]
-        ),
-        .target(
             name: "IndexTTS2TTS",
             dependencies: [
                 "AudioCommon",
                 "ChatterboxTTS",
                 "MLXCommon",
                 "SpeechRestoration",
-                "VoiceCloneTTSCommon",
                 .product(name: "MLX", package: "mlx-swift"),
-            ]
-        ),
-        .target(
-            name: "HiggsAudioTTS",
-            dependencies: [
-                "AudioCommon",
-                "VoiceCloneTTSCommon",
-            ]
-        ),
-        .target(
-            name: "F5TTS",
-            dependencies: [
-                "AudioCommon",
-                "VoiceCloneTTSCommon",
             ]
         ),
         .target(
@@ -775,12 +742,9 @@ let package = Package(
             ]
         ),
         .testTarget(
-            name: "VoiceCloneCandidateTTSTests",
+            name: "IndexTTS2TTSTests",
             dependencies: [
-                "VoiceCloneTTSCommon",
                 "IndexTTS2TTS",
-                "HiggsAudioTTS",
-                "F5TTS",
                 "AudioCommon",
                 "Qwen3ASR",
             ]

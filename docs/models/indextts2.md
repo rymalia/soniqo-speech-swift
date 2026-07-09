@@ -32,7 +32,7 @@ The expanded bundle contains:
 - Auxiliary model weights under `aux/`.
 - tokenizer/config/license files copied from upstream repositories.
 
-`VoiceCloneBundleLoader` validates that the manifest model key matches
+`IndexTTS2BundleLoader` validates that the manifest model key matches
 `indextts2` and that all converted and copied files listed in the manifest
 exist. `memoryFootprint` reports the total bytes of converted safetensors.
 

@@ -41,7 +41,7 @@ final class IndexTTS2S2MelFlow {
             x = x * MLXArray(temperature)
         }
 
-        var promptX = MLXArray.zeros(x.shape, dtype: x.dtype)
+        let promptX = MLXArray.zeros(x.shape, dtype: x.dtype)
         promptX[0..., 0..., 0..<promptFrames] = promptMel.asType(x.dtype)
         x[0..., 0..., 0..<promptFrames] = MLXArray(Float(0)).asType(x.dtype)
 

@@ -1,7 +1,7 @@
 import AudioCommon
 import Foundation
 
-public struct VoiceCloneBundleFile: Codable, Equatable, Sendable {
+public struct IndexTTS2BundleFile: Codable, Equatable, Sendable {
     public let path: String
     public let bytes: Int64
 
@@ -11,7 +11,7 @@ public struct VoiceCloneBundleFile: Codable, Equatable, Sendable {
     }
 }
 
-public struct VoiceCloneAuxiliaryManifest: Codable, Equatable, Sendable {
+public struct IndexTTS2AuxiliaryManifest: Codable, Equatable, Sendable {
     public let key: String
     public let displayName: String
     public let sourceRepo: String
@@ -33,7 +33,7 @@ public struct VoiceCloneAuxiliaryManifest: Codable, Equatable, Sendable {
     }
 }
 
-public struct VoiceCloneExportManifest: Codable, Equatable, Sendable {
+public struct IndexTTS2ExportManifest: Codable, Equatable, Sendable {
     public let schemaVersion: Int
     public let artifactType: String
     public let modelKey: String
@@ -53,9 +53,9 @@ public struct VoiceCloneExportManifest: Codable, Equatable, Sendable {
     public let runtimeStatus: String?
     public let convertedFiles: [String]
     public let copiedFiles: [String]
-    public let auxiliaryModels: [VoiceCloneAuxiliaryManifest]
+    public let auxiliaryModels: [IndexTTS2AuxiliaryManifest]
     public let notes: [String]
-    public let files: [VoiceCloneBundleFile]
+    public let files: [IndexTTS2BundleFile]
 
     enum CodingKeys: String, CodingKey {
         case schemaVersion = "schema_version"
@@ -104,30 +104,30 @@ public struct VoiceCloneExportManifest: Codable, Equatable, Sendable {
         convertedFiles = try container.decodeIfPresent([String].self, forKey: .convertedFiles) ?? []
         copiedFiles = try container.decodeIfPresent([String].self, forKey: .copiedFiles) ?? []
         auxiliaryModels = try container.decodeIfPresent(
-            [VoiceCloneAuxiliaryManifest].self,
+            [IndexTTS2AuxiliaryManifest].self,
             forKey: .auxiliaryModels) ?? []
         notes = try container.decodeIfPresent([String].self, forKey: .notes) ?? []
-        files = try container.decodeIfPresent([VoiceCloneBundleFile].self, forKey: .files) ?? []
+        files = try container.decodeIfPresent([IndexTTS2BundleFile].self, forKey: .files) ?? []
     }
 }
 
-public struct VoiceCloneBundleInfo: Equatable, Sendable {
+public struct IndexTTS2BundleInfo: Equatable, Sendable {
     public let directory: URL
-    public let manifest: VoiceCloneExportManifest
+    public let manifest: IndexTTS2ExportManifest
     public let weightMemory: Int
 
     public var sampleRate: Int {
         manifest.sampleRateHz ?? 24_000
     }
 
-    public init(directory: URL, manifest: VoiceCloneExportManifest, weightMemory: Int) {
+    public init(directory: URL, manifest: IndexTTS2ExportManifest, weightMemory: Int) {
         self.directory = directory
         self.manifest = manifest
         self.weightMemory = weightMemory
     }
 }
 
-public enum VoiceCloneBundleError: Error, LocalizedError, Equatable {
+public enum IndexTTS2BundleError: Error, LocalizedError, Equatable {
     case missingManifest(URL)
     case invalidManifest(URL, String)
     case unexpectedModelKey(expected: String, actual: String)
@@ -137,20 +137,20 @@ public enum VoiceCloneBundleError: Error, LocalizedError, Equatable {
     public var errorDescription: String? {
         switch self {
         case .missingManifest(let url):
-            return "Missing voice-cloning bundle manifest: \(url.path)"
+            return "Missing IndexTTS2 bundle manifest: \(url.path)"
         case .invalidManifest(let url, let reason):
-            return "Invalid voice-cloning bundle manifest at \(url.path): \(reason)"
+            return "Invalid IndexTTS2 bundle manifest at \(url.path): \(reason)"
         case .unexpectedModelKey(let expected, let actual):
-            return "Unexpected voice-cloning model key '\(actual)' (expected '\(expected)')"
+            return "Unexpected IndexTTS2 model key '\(actual)' (expected '\(expected)')"
         case .missingRequiredFile(let path):
-            return "Voice-cloning bundle is missing required file: \(path)"
+            return "IndexTTS2 bundle is missing required file: \(path)"
         case .emptyWeightSet(let url):
-            return "Voice-cloning bundle has no converted safetensors weights: \(url.path)"
+            return "IndexTTS2 bundle has no converted safetensors weights: \(url.path)"
         }
     }
 }
 
-public enum VoiceCloneBundleLoader {
+public enum IndexTTS2BundleLoader {
     public static let manifestFileName = "soniqo_manifest.json"
 
     public static func download(
@@ -176,28 +176,28 @@ public enum VoiceCloneBundleLoader {
         from directory: URL,
         expectedModelKey: String,
         progressHandler: ((Double, String) -> Void)? = nil
-    ) throws -> VoiceCloneBundleInfo {
-        progressHandler?(0.05, "Loading voice-cloning manifest")
+    ) throws -> IndexTTS2BundleInfo {
+        progressHandler?(0.05, "Loading IndexTTS2 manifest")
         let manifestURL = directory.appendingPathComponent(manifestFileName)
         let manifest = try loadManifest(from: manifestURL)
 
         guard manifest.modelKey == expectedModelKey else {
-            throw VoiceCloneBundleError.unexpectedModelKey(
+            throw IndexTTS2BundleError.unexpectedModelKey(
                 expected: expectedModelKey,
                 actual: manifest.modelKey)
         }
 
-        progressHandler?(0.35, "Validating voice-cloning bundle")
+        progressHandler?(0.35, "Validating IndexTTS2 bundle")
         for path in manifest.convertedFiles + manifest.copiedFiles {
             let fileURL = directory.appendingPathComponent(path)
             guard FileManager.default.fileExists(atPath: fileURL.path) else {
-                throw VoiceCloneBundleError.missingRequiredFile(path)
+                throw IndexTTS2BundleError.missingRequiredFile(path)
             }
         }
 
         let weightFiles = manifest.convertedFiles.filter { $0.hasSuffix(".safetensors") }
         guard !weightFiles.isEmpty else {
-            throw VoiceCloneBundleError.emptyWeightSet(directory)
+            throw IndexTTS2BundleError.emptyWeightSet(directory)
         }
 
         let memory = weightFiles.reduce(0) { total, path in
@@ -206,27 +206,22 @@ public enum VoiceCloneBundleLoader {
             return total + size
         }
 
-        progressHandler?(1.0, "Voice-cloning bundle ready")
-        return VoiceCloneBundleInfo(directory: directory, manifest: manifest, weightMemory: memory)
+        progressHandler?(1.0, "IndexTTS2 bundle ready")
+        return IndexTTS2BundleInfo(directory: directory, manifest: manifest, weightMemory: memory)
     }
 
-    public static func loadManifest(from url: URL) throws -> VoiceCloneExportManifest {
+    public static func loadManifest(from url: URL) throws -> IndexTTS2ExportManifest {
         guard FileManager.default.fileExists(atPath: url.path) else {
-            throw VoiceCloneBundleError.missingManifest(url)
+            throw IndexTTS2BundleError.missingManifest(url)
         }
         do {
             let data = try Data(contentsOf: url)
-            return try JSONDecoder().decode(VoiceCloneExportManifest.self, from: data)
-        } catch let error as VoiceCloneBundleError {
+            return try JSONDecoder().decode(IndexTTS2ExportManifest.self, from: data)
+        } catch let error as IndexTTS2BundleError {
             throw error
         } catch {
-            throw VoiceCloneBundleError.invalidManifest(url, error.localizedDescription)
+            throw IndexTTS2BundleError.invalidManifest(url, error.localizedDescription)
         }
     }
 
-    public static func runtimeNotImplemented(modelName: String) -> AudioModelError {
-        AudioModelError.inferenceFailed(
-            operation: "\(modelName) synthesis",
-            reason: "The bundle loader is implemented, but native Swift inference for this model has not been ported yet.")
-    }
 }

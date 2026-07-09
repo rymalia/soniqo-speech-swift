@@ -27,7 +27,6 @@ The `AudioCommon` module defines shared protocols that provide model-agnostic in
    │VoxCPM2  │        │ForcedAlign│
    │Kokoro   │
    │IndexTTS2│
-   │Higgs/F5 │
    └─────────┘        └───────────┘
 ```
 
@@ -45,9 +44,9 @@ public protocol SpeechGenerationModel: AnyObject {
 }
 ```
 
-**Conforming types:** `Qwen3TTSModel`, `CosyVoiceTTSModel`, `VoxCPM2TTSModel`, `KokoroTTSModel`, `IndexTTS2TTSModel`, `HiggsAudioTTSModel`, `F5TTSModel`
+**Conforming types:** `Qwen3TTSModel`, `CosyVoiceTTSModel`, `VoxCPM2TTSModel`, `KokoroTTSModel`, `IndexTTS2TTSModel`
 
-`IndexTTS2TTSModel`, `HiggsAudioTTSModel`, and `F5TTSModel` implement bundle loading, manifest validation, metadata access, and `ModelMemoryManageable`. `IndexTTS2TTSModel` additionally exposes a reference-audio `generate` overload for the expanded IndexTTS2 bundle and runs native reference conditioning, optional `IndexTTS2EmotionControl` preset/vector blending, `IndexTTS2SynthesisOptions` speaking-rate and internal-pause controls, semantic GPT beam sampling, S2Mel decoding, and BigVGAN vocoding. The protocol-only `generate(text:language:)` entry point throws a reference-required error for IndexTTS2; Higgs Audio and F5-TTS intentionally throw clear unsupported-runtime errors until their native Swift inference graphs are ported.
+`IndexTTS2TTSModel` implements bundle loading, manifest validation, metadata access, and `ModelMemoryManageable`. It exposes a reference-audio `generate` overload for the expanded IndexTTS2 bundle and runs native reference conditioning, optional `IndexTTS2EmotionControl` preset/vector blending, `IndexTTS2SynthesisOptions` speaking-rate and internal-pause controls, semantic GPT beam sampling, S2Mel decoding, and BigVGAN vocoding. The protocol-only `generate(text:language:)` entry point throws a reference-required error because IndexTTS2 is a zero-shot voice-cloning model.
 
 ### SpeechRecognitionModel (STT)
 
@@ -417,10 +416,7 @@ Sources/
 │   ├── AudioVAE.swift         AudioVAE V2 encode/decode
 │   └── Configuration.swift    ModelArgs / config decoding for VoxCPM2 snapshots
 │
-├── VoiceCloneTTSCommon/       Shared manifest + bundle validation for candidate TTS ports
 ├── IndexTTS2TTS/              IndexTTS2 voice cloning (reference conditioning + synthesis)
-├── HiggsAudioTTS/             Higgs Audio v3 bundle loader (inference not ported)
-├── F5TTS/                     F5-TTS v1 bundle loader (inference not ported)
 │
 ├── PersonaPlex/               Speech-to-speech (Temporal + Depformer + Mimi)
 │   ├── PersonaPlex.swift      PersonaPlexModel: SpeechToSpeechModel
@@ -453,7 +449,7 @@ AudioCommon  ← Qwen3ASR         ─┐
              ← Qwen3TTS         │
              ← CosyVoiceTTS     │
              ← VoxCPM2TTS       │
-             ← VoiceCloneTTSCommon ← IndexTTS2TTS, HiggsAudioTTS, F5TTS
+             ← IndexTTS2TTS     │
              ← KokoroTTS        ├── AudioCLILib ── AudioCLI (executable)
              ← ParakeetASR      │
              ← ParakeetStreamingASR │
@@ -477,7 +473,7 @@ All model classes are **not thread-safe** by design. ML inference is inherently 
 - `Qwen3TTSModel`
 - `CosyVoiceTTSModel`
 - `VoxCPM2TTSModel`
-- `IndexTTS2TTSModel`, `HiggsAudioTTSModel`, `F5TTSModel`
+- `IndexTTS2TTSModel`
 - `PersonaPlexModel`
 - `OmnilingualASRModel` (CoreML), `OmnilingualASRMLXModel` (MLX)
 - `ParakeetASRModel`, `ParakeetStreamingASRModel`, `NemotronStreamingASRModel`

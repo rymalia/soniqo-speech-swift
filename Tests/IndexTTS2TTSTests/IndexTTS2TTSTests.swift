@@ -1,11 +1,8 @@
 import AudioCommon
-@testable import F5TTS
-@testable import HiggsAudioTTS
 @testable import IndexTTS2TTS
-@testable import VoiceCloneTTSCommon
 import XCTest
 
-final class VoiceCloneCandidateTTSTests: XCTestCase {
+final class IndexTTS2TTSTests: XCTestCase {
     func testIndexTTS2BundleLoadsAndReportsMetadata() async throws {
         let dir = try makeBundle(
             modelKey: "indextts2",
@@ -100,9 +97,9 @@ final class VoiceCloneCandidateTTSTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: dir) }
 
         XCTAssertThrowsError(
-            try VoiceCloneBundleLoader.load(from: dir, expectedModelKey: "indextts2")
+            try IndexTTS2BundleLoader.load(from: dir, expectedModelKey: "indextts2")
         ) { error in
-            XCTAssertEqual(error as? VoiceCloneBundleError, .missingRequiredFile("config.json"))
+            XCTAssertEqual(error as? IndexTTS2BundleError, .missingRequiredFile("config.json"))
         }
     }
 
@@ -181,56 +178,57 @@ final class VoiceCloneCandidateTTSTests: XCTestCase {
         XCTAssertGreaterThan(compressed.count, voiced.count * 2 + 90)
     }
 
-    func testHiggsBundleRejectsWrongManifestKey() async throws {
+    func testIndexTTS2BundleRejectsWrongManifestKey() async throws {
         let dir = try makeBundle(
-            modelKey: "indextts2",
-            displayName: "IndexTTS2",
+            modelKey: "other-tts",
+            displayName: "Other TTS",
             parameterCount: "1.5B-class",
             sampleRate: 24_000,
             convertedFiles: ["model.safetensors"])
         defer { try? FileManager.default.removeItem(at: dir) }
 
-        do {
-            _ = try await HiggsAudioTTSModel.fromBundle(dir)
-            XCTFail("Expected wrong manifest key to fail")
-        } catch let error as VoiceCloneBundleError {
-            XCTAssertEqual(error, .unexpectedModelKey(expected: "higgs-audio-v3", actual: "indextts2"))
+        XCTAssertThrowsError(
+            try IndexTTS2BundleLoader.load(from: dir, expectedModelKey: "indextts2")
+        ) { error in
+            XCTAssertEqual(error as? IndexTTS2BundleError, .unexpectedModelKey(
+                expected: "indextts2",
+                actual: "other-tts"))
         }
     }
 
-    func testF5GenerationFailsWithExplicitUnsupportedRuntime() async throws {
+    func testIndexTTS2ProtocolGenerateRequiresReferenceAudio() async throws {
         let dir = try makeBundle(
-            modelKey: "f5-tts-v1",
-            displayName: "F5-TTS v1 Base",
-            parameterCount: "335M-class",
+            modelKey: "indextts2",
+            displayName: "IndexTTS2",
+            parameterCount: "1.5B-class",
             sampleRate: 24_000,
-            convertedFiles: ["F5TTS_v1_Base/model_1250000.safetensors"])
+            convertedFiles: ["gpt.safetensors", "s2mel.safetensors"])
         defer { try? FileManager.default.removeItem(at: dir) }
 
-        let model = try await F5TTSModel.fromBundle(dir)
+        let model = try await IndexTTS2TTSModel.fromBundle(dir)
 
         do {
             _ = try await model.generate(text: "Hello", language: "en")
-            XCTFail("Expected unsupported native inference error")
+            XCTFail("Expected reference-required error")
         } catch let error as AudioModelError {
             guard case .inferenceFailed(let operation, let reason) = error else {
                 return XCTFail("Unexpected AudioModelError: \(error)")
             }
-            XCTAssertEqual(operation, "F5-TTS v1 synthesis")
-            XCTAssertTrue(reason.contains("native Swift inference"))
+            XCTAssertEqual(operation, "IndexTTS2 synthesis")
+            XCTAssertTrue(reason.contains("reference audio"))
         }
     }
 
     func testUnloadClearsMemoryFootprint() async throws {
         let dir = try makeBundle(
-            modelKey: "higgs-audio-v3",
-            displayName: "Higgs Audio v3 TTS 4B",
-            parameterCount: "4B",
+            modelKey: "indextts2",
+            displayName: "IndexTTS2",
+            parameterCount: "1.5B-class",
             sampleRate: 24_000,
-            convertedFiles: ["model.safetensors"])
+            convertedFiles: ["gpt.safetensors"])
         defer { try? FileManager.default.removeItem(at: dir) }
 
-        let model = try await HiggsAudioTTSModel.fromBundle(dir)
+        let model = try await IndexTTS2TTSModel.fromBundle(dir)
         XCTAssertEqual(model.memoryFootprint, 16)
 
         model.unload()
