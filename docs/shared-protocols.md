@@ -26,6 +26,7 @@ The `AudioCommon` module defines shared protocols that provide model-agnostic in
    │CosyVoice│        │ParakeetASR│       └───────────┘       └───────────┘
    │VoxCPM2  │        │ForcedAlign│
    │Kokoro   │
+   │IndexTTS2│
    └─────────┘        └───────────┘
 ```
 
@@ -43,7 +44,9 @@ public protocol SpeechGenerationModel: AnyObject {
 }
 ```
 
-**Conforming types:** `Qwen3TTSModel`, `CosyVoiceTTSModel`, `VoxCPM2TTSModel`, `KokoroTTSModel`
+**Conforming types:** `Qwen3TTSModel`, `CosyVoiceTTSModel`, `VoxCPM2TTSModel`, `KokoroTTSModel`, `IndexTTS2TTSModel`
+
+`IndexTTS2TTSModel` implements bundle loading, manifest validation, metadata access, and `ModelMemoryManageable`. It exposes a reference-audio `generate` overload for the expanded IndexTTS2 bundle and runs native reference conditioning, optional `IndexTTS2EmotionControl` preset/vector blending, `IndexTTS2SynthesisOptions` speaking-rate and internal-pause controls, semantic GPT beam sampling, S2Mel decoding, and BigVGAN vocoding. The protocol-only `generate(text:language:)` entry point throws a reference-required error because IndexTTS2 is a zero-shot voice-cloning model.
 
 ### SpeechRecognitionModel (STT)
 
@@ -413,6 +416,8 @@ Sources/
 │   ├── AudioVAE.swift         AudioVAE V2 encode/decode
 │   └── Configuration.swift    ModelArgs / config decoding for VoxCPM2 snapshots
 │
+├── IndexTTS2TTS/              IndexTTS2 voice cloning (reference conditioning + synthesis)
+│
 ├── PersonaPlex/               Speech-to-speech (Temporal + Depformer + Mimi)
 │   ├── PersonaPlex.swift      PersonaPlexModel: SpeechToSpeechModel
 │   └── PersonaPlex+Protocols.swift
@@ -444,6 +449,7 @@ AudioCommon  ← Qwen3ASR         ─┐
              ← Qwen3TTS         │
              ← CosyVoiceTTS     │
              ← VoxCPM2TTS       │
+             ← IndexTTS2TTS     │
              ← KokoroTTS        ├── AudioCLILib ── AudioCLI (executable)
              ← ParakeetASR      │
              ← ParakeetStreamingASR │
@@ -467,6 +473,7 @@ All model classes are **not thread-safe** by design. ML inference is inherently 
 - `Qwen3TTSModel`
 - `CosyVoiceTTSModel`
 - `VoxCPM2TTSModel`
+- `IndexTTS2TTSModel`
 - `PersonaPlexModel`
 - `OmnilingualASRModel` (CoreML), `OmnilingualASRMLXModel` (MLX)
 - `ParakeetASRModel`, `ParakeetStreamingASRModel`, `NemotronStreamingASRModel`

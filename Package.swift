@@ -41,6 +41,10 @@ let package = Package(
             targets: ["FishAudioTTS"]
         ),
         .library(
+            name: "IndexTTS2TTS",
+            targets: ["IndexTTS2TTS"]
+        ),
+        .library(
             name: "PersonaPlex",
             targets: ["PersonaPlex"]
         ),
@@ -304,6 +308,16 @@ let package = Package(
             ]
         ),
         .target(
+            name: "IndexTTS2TTS",
+            dependencies: [
+                "AudioCommon",
+                "ChatterboxTTS",
+                "MLXCommon",
+                "SpeechRestoration",
+                .product(name: "MLX", package: "mlx-swift"),
+            ]
+        ),
+        .target(
             name: "PersonaPlex",
             dependencies: [
                 "AudioCommon",
@@ -563,6 +577,7 @@ let package = Package(
                 "KokoroTTS",
                 "VibeVoiceTTS",
                 "VoxCPM2TTS",
+                "IndexTTS2TTS",
                 "IndicMioTTS",
                 "MAGNeTMusicGen",
                 "StableAudio3MusicGen",
@@ -724,6 +739,14 @@ let package = Package(
             dependencies: [
                 "FishAudioTTS", "AudioCommon", "MLXCommon", "Qwen3ASR",
                 .product(name: "MLX", package: "mlx-swift")
+            ]
+        ),
+        .testTarget(
+            name: "IndexTTS2TTSTests",
+            dependencies: [
+                "IndexTTS2TTS",
+                "AudioCommon",
+                "Qwen3ASR",
             ]
         ),
         .testTarget(

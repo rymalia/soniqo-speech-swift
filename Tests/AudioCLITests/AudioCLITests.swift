@@ -436,6 +436,17 @@ final class SpeakCommandTests: XCTestCase {
         XCTAssertEqual(speak.indicMioRepetitionPenalty, 1.0, accuracy: 0.001)
     }
 
+    func testIndexTTS2Engine() throws {
+        let cmd = try AudioCLI.parseAsRoot([
+            "speak", "--engine", "indextts2", "Hello",
+            "--voice-sample", "ref.wav",
+        ])
+        let speak = try XCTUnwrap(cmd as? SpeakCommand)
+        XCTAssertEqual(speak.engine, "indextts2")
+        XCTAssertEqual(speak.voiceSample, "ref.wav")
+        XCTAssertEqual(speak.indextts2ModelId, "aufklarer/IndexTTS2-MLX-fp16")
+    }
+
     func testInvalidEngineFails() {
         XCTAssertThrowsError(try AudioCLI.parseAsRoot(["speak", "--engine", "whisper", "hi"])) { error in
             XCTAssertEqual(AudioCLI.exitCode(for: error), .validationFailure)
@@ -570,6 +581,49 @@ final class SpeakCommandTests: XCTestCase {
         XCTAssertNotNil(speak.indicMioGlobalEmbedding)
     }
 
+    func testIndexTTS2Options() throws {
+        let cmd = try AudioCLI.parseAsRoot([
+            "speak", "Hello",
+            "--engine", "indextts2",
+            "--voice-sample", "ref.wav",
+            "--indextts2-model-id", "org/IndexTTS2-MLX-fp16",
+            "--indextts2-bundle-dir", "/tmp/IndexTTS2-MLX-fp16",
+            "--indextts2-emotion", "eager",
+            "--indextts2-emotion-weight", "0.75",
+            "--indextts2-speaking-rate", "1.15",
+            "--indextts2-max-pause", "0.18",
+        ])
+        let speak = try XCTUnwrap(cmd as? SpeakCommand)
+        XCTAssertEqual(speak.indextts2ModelId, "org/IndexTTS2-MLX-fp16")
+        XCTAssertEqual(speak.indextts2BundleDir, "/tmp/IndexTTS2-MLX-fp16")
+        XCTAssertEqual(speak.indextts2Emotion, "eager")
+        XCTAssertEqual(speak.indextts2EmotionWeight, 0.75, accuracy: 0.001)
+        XCTAssertEqual(speak.indextts2SpeakingRate, 1.15, accuracy: 0.001)
+        XCTAssertEqual(try XCTUnwrap(speak.indextts2MaxPause), 0.18, accuracy: 0.001)
+    }
+
+    func testIndexTTS2EmotionVectorOption() throws {
+        let cmd = try AudioCLI.parseAsRoot([
+            "speak", "Hello",
+            "--engine", "indextts2",
+            "--voice-sample", "ref.wav",
+            "--indextts2-emotion", "0.65,0,0,0,0,0,0.15,0",
+        ])
+        let speak = try XCTUnwrap(cmd as? SpeakCommand)
+        XCTAssertEqual(speak.indextts2Emotion, "0.65,0,0,0,0,0,0.15,0")
+    }
+
+    func testIndexTTS2EmotionAudioOption() throws {
+        let cmd = try AudioCLI.parseAsRoot([
+            "speak", "Hello",
+            "--engine", "indextts2",
+            "--voice-sample", "ref.wav",
+            "--indextts2-emotion-audio", "style.wav",
+        ])
+        let speak = try XCTUnwrap(cmd as? SpeakCommand)
+        XCTAssertEqual(speak.indextts2EmotionAudio, "style.wav")
+    }
+
     func testIndicMioAcceptsInlineJSONEmbedding() throws {
         let embedding = "[\(Array(repeating: "0", count: 128).joined(separator: ","))]"
         XCTAssertNoThrow(try AudioCLI.parseAsRoot([
@@ -624,6 +678,49 @@ final class SpeakCommandTests: XCTestCase {
     }
 
     // MARK: - Indic-Mio engine
+
+    func testIndexTTS2RejectsMissingVoiceSample() {
+        expectSpeakReject(
+            ["speak", "Hello", "--engine", "indextts2"],
+            contains: "--voice-sample")
+    }
+
+    func testIndexTTS2RejectsUnsupportedControls() {
+        expectSpeakReject(
+            ["speak", "Hello", "--engine", "indextts2", "--voice-sample", "ref.wav", "--stream"],
+            contains: "--stream")
+        expectSpeakReject(
+            ["speak", "Hello", "--engine", "indextts2", "--voice-sample", "ref.wav", "--speaker", "someone"],
+            contains: "--speaker")
+        expectSpeakReject(
+            ["speak", "Hello", "--engine", "indextts2", "--voice-sample", "ref.wav", "--instruct", "friendly"],
+            contains: "--instruct")
+        expectSpeakReject(
+            [
+                "speak", "Hello",
+                "--engine", "indextts2",
+                "--voice-sample", "ref.wav",
+                "--indextts2-emotion", "eager",
+                "--indextts2-emotion-audio", "style.wav",
+            ],
+            contains: "mutually exclusive")
+        expectSpeakReject(
+            [
+                "speak", "Hello",
+                "--engine", "indextts2",
+                "--voice-sample", "ref.wav",
+                "--indextts2-speaking-rate", "2.0",
+            ],
+            contains: "speakingRate")
+        expectSpeakReject(
+            [
+                "speak", "Hello",
+                "--engine", "indextts2",
+                "--voice-sample", "ref.wav",
+                "--indextts2-max-pause", "0.01",
+            ],
+            contains: "maxInternalPauseDuration")
+    }
 
     func testIndicMioAcceptsVoiceSampleReference() throws {
         let cmd = try AudioCLI.parseAsRoot([
