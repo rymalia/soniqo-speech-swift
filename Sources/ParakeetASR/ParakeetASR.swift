@@ -113,9 +113,11 @@ public class ParakeetASRModel {
         // of truncating to the tail.
         let maxWindow = supportedMelLengths.last ?? melLength
         // Language steering: a per-call language wins; otherwise fall back to the persistent
-        // override (a host settings toggle). Empty/nil both mean auto-detect.
-        let effectiveLanguage = (language?.isEmpty == false) ? language : languageOverride
-        let masked = maskedLanguageTokens(for: effectiveLanguage)
+        // override. Empty/nil both mean auto-detect.
+        let effectiveLanguage = Self.effectiveLanguageHint(
+            perCall: language,
+            override: languageOverride)
+        let masked = vocabulary.maskedLanguageTokenIds(allowing: effectiveLanguage)
         let tInfer0 = CFAbsoluteTimeGetCurrent()
         var tokenIds: [Int] = []
         var tokenLogProbs: [Float] = []
@@ -172,25 +174,13 @@ public class ParakeetASRModel {
         return try tdtDecoder.decode(encoded: encoded, encodedLength: encodedLength)
     }
 
-    /// Persistent language steering applied when a per-call `language` isn't given. Lets a host
-    /// pick the ASR language at runtime (a settings toggle) without rebuilding the pipeline — an
+    /// Persistent language steering applied when a per-call `language` isn't given. Accepts an
     /// ISO code / shortlist ("en", "en,ru"), or nil for auto-detect.
     public var languageOverride: String?
 
-    /// Resolve which language-tag tokens to suppress so the decoder can only emit an allowed
-    /// language. `language` is a comma-separated shortlist ("en", "en,ru"); empty/nil → no masking
-    /// (native auto-detect). Unknown codes are ignored; if none resolve, masking is skipped so a
-    /// bad hint never silently breaks transcription.
-    private func maskedLanguageTokens(for language: String?) -> Set<Int> {
-        guard let language, !language.trimmingCharacters(in: .whitespaces).isEmpty else { return [] }
-        let requested = language.lowercased()
-            .split(separator: ",")
-            .map { $0.trimmingCharacters(in: .whitespaces) }
-            .filter { !$0.isEmpty }
-        let tagIds = vocabulary.languageTagIds
-        let allowedIds = Set(requested.compactMap { tagIds[$0] })
-        guard !allowedIds.isEmpty else { return [] }
-        return Set(tagIds.values).subtracting(allowedIds)
+    static func effectiveLanguageHint(perCall: String?, override: String?) -> String? {
+        let trimmed = perCall?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed?.isEmpty == false ? trimmed : override
     }
 
     /// Copy frames `[start, start+length)` out of a `[1, 128, totalFrames]`

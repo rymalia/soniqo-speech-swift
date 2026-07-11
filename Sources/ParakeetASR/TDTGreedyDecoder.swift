@@ -205,9 +205,10 @@ struct TDTGreedyDecoder {
 
         // Large arrays: convert Float16→Float, then vDSP_maxvi
         for i in 0..<count { floatBuf![i] = Float(ptr[i]) }
-        // Language steering: knock out disallowed language-tag logits so they can never win argmax,
-        // forcing the model to emit an allowed language tag (which conditions the rest of decode).
-        for id in masked where id < count { floatBuf![id] = -Float.greatestFiniteMagnitude }
+        // Suppress disallowed tags so only requested language tags can condition the decode.
+        for id in masked where id >= 0 && id < count {
+            floatBuf![id] = -Float.greatestFiniteMagnitude
+        }
         var maxVal: Float = 0
         var maxIdx: vDSP_Length = 0
         vDSP_maxvi(floatBuf!, 1, &maxVal, &maxIdx, vDSP_Length(count))

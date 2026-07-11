@@ -200,6 +200,30 @@ final class E2EParakeetASRTests: XCTestCase {
         print("German transcription: \(result)")
     }
 
+    func testLanguageSteeringPreservesEnglishAndGermanTranscription() async throws {
+        let model = try await ParakeetASRModel.fromPretrained(modelId: Self.modelId)
+
+        guard
+            let englishURL = Bundle.module.url(forResource: "test_audio", withExtension: "wav"),
+            let germanURL = Bundle.module.url(forResource: "test_audio_german", withExtension: "wav")
+        else {
+            throw XCTSkip("Parakeet language-steering fixtures not found")
+        }
+
+        let englishAudio = try AudioFileLoader.load(url: englishURL, targetSampleRate: 16000)
+        let english = try model.transcribeAudio(englishAudio, sampleRate: 16000, language: "en")
+        let englishLower = english.lowercased()
+        XCTAssertTrue(englishLower.contains("guarantee"), "English steering lost 'guarantee': \(english)")
+        XCTAssertTrue(englishLower.contains("replacement"), "English steering lost 'replacement': \(english)")
+        XCTAssertTrue(englishLower.contains("shipped"), "English steering lost 'shipped': \(english)")
+
+        let germanAudio = try AudioFileLoader.load(url: germanURL, targetSampleRate: 16000)
+        let german = try model.transcribeAudio(germanAudio, sampleRate: 16000, language: "de")
+        XCTAssertTrue(
+            german.lowercased().contains("guten tag"),
+            "German steering lost 'guten tag': \(german)")
+    }
+
     func testWarmup() async throws {
         let model = try await ParakeetASRModel.fromPretrained(modelId: Self.modelId)
 
@@ -471,5 +495,33 @@ final class ParakeetASRUnitTests: XCTestCase {
         XCTAssertEqual(tags.count, 4)
         XCTAssertNil(tags["pnc"])      // id 5 < 24
         XCTAssertNil(tags["unklang"])  // control + too long
+    }
+
+    func testLanguageMaskAllowsOnlyRequestedTags() {
+        let vocab = ParakeetVocabulary(idToToken: [
+            64: "<|en|>",
+            78: "<|de|>",
+            157: "<|ru|>",
+            274: "en",
+        ])
+
+        XCTAssertEqual(vocab.maskedLanguageTokenIds(allowing: "en"), [78, 157])
+        XCTAssertEqual(vocab.maskedLanguageTokenIds(allowing: " EN, de "), [157])
+        XCTAssertEqual(vocab.maskedLanguageTokenIds(allowing: "unknown"), [])
+        XCTAssertEqual(vocab.maskedLanguageTokenIds(allowing: "  "), [])
+        XCTAssertEqual(vocab.maskedLanguageTokenIds(allowing: nil), [])
+    }
+
+    func testPerCallLanguagePrecedesOverrideUnlessItIsBlank() {
+        XCTAssertEqual(
+            ParakeetASRModel.effectiveLanguageHint(perCall: "en", override: "de"),
+            "en")
+        XCTAssertEqual(
+            ParakeetASRModel.effectiveLanguageHint(perCall: "  ", override: "de"),
+            "de")
+        XCTAssertEqual(
+            ParakeetASRModel.effectiveLanguageHint(perCall: nil, override: "de"),
+            "de")
+        XCTAssertNil(ParakeetASRModel.effectiveLanguageHint(perCall: nil, override: nil))
     }
 }

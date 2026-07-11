@@ -39,6 +39,21 @@ public struct ParakeetVocabulary: Sendable {
         return map
     }
 
+    /// Resolve the language-tag IDs that should be suppressed for a comma-separated allowlist.
+    /// Unknown-only input leaves native auto-detection unchanged instead of masking every tag.
+    func maskedLanguageTokenIds(allowing language: String?) -> Set<Int> {
+        guard let language else { return [] }
+        let requested = language.lowercased()
+            .split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        guard !requested.isEmpty else { return [] }
+
+        let allowedIds = Set(requested.compactMap { languageTagIds[$0] })
+        guard !allowedIds.isEmpty else { return [] }
+        return Set(languageTagIds.values).subtracting(allowedIds)
+    }
+
     /// Load vocabulary from a `vocab.json` file.
     ///
     /// Expected format: `{"0": "▁the", "1": "▁a", ...}`
