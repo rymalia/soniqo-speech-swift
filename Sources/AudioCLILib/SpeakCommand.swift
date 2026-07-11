@@ -55,7 +55,7 @@ public struct SpeakCommand: ParsableCommand {
     @Option(name: .long, help: "Sidon variant for --clean-reference: fp16 (default) or int8")
     public var cleanReferenceVariant: String = "fp16"
 
-    @Option(name: .long, help: "[qwen3] Model variant: base (default), base-8bit, 1.7b (bf16), 1.7b-8bit, customVoice, customVoice-bf16, or full HF model ID. Note: --speaker requires customVoice.")
+    @Option(name: .long, help: "[qwen3] Model variant: base (default), base-8bit, 1.7b (bf16), 1.7b-8bit, customVoice (bf16), or full HF model ID. Note: --speaker requires customVoice.")
     public var model: String = "base"
 
     @Flag(name: .long, help: "[qwen3] List available speakers and exit")
@@ -719,10 +719,11 @@ public struct SpeakCommand: ParsableCommand {
                 resolvedModelId = TTSModelVariant.base17Bbf16.rawValue
             case "1.7b-8bit", "large-8bit":
                 resolvedModelId = TTSModelVariant.base17B8bit.rawValue
-            case "customvoice", "custom_voice", "custom-voice", "customvoice-8bit", "custom_voice_8bit", "custom-voice-8bit":
+            // All customVoice spellings resolve to the bf16 bundle; the
+            // 8-bit CustomVoice bundle was retired.
+            case "customvoice", "custom_voice", "custom-voice", "customvoice-8bit", "custom_voice_8bit", "custom-voice-8bit",
+                 "customvoice-bf16", "custom_voice_bf16", "custom-voice-bf16":
                 resolvedModelId = TTSModelVariant.customVoice.rawValue
-            case "customvoice-bf16", "custom_voice_bf16", "custom-voice-bf16":
-                resolvedModelId = TTSModelVariant.customVoiceBf16.rawValue
             default:
                 resolvedModelId = model
             }

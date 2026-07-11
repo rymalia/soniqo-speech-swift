@@ -19,10 +19,22 @@ public enum TTSWeightLoader {
     public static func loadTalkerAndCodePredictorWeights(
         talker: TalkerModel,
         codePredictor: CodePredictorModel,
-        from directory: URL
+        from directory: URL,
+        castFloat16ToBFloat16: Bool = false
     ) throws {
-        let allWeights = try CommonWeightLoader.loadAllSafetensors(from: directory)
+        var allWeights = try CommonWeightLoader.loadAllSafetensors(from: directory)
         logLoad("Loaded \(allWeights.count) weights from safetensors")
+
+        // The talker's cached incremental decode is numerically unstable in
+        // float16 (prefill is fine; step logits degenerate into repetition
+        // and EOS never fires). Upstream runs bfloat16, and the quantized
+        // bundles keep their float tensors in bfloat16 — only unquantized
+        // float16 exports hit this, so promote them to bfloat16 at load.
+        if castFloat16ToBFloat16 {
+            for (key, value) in allWeights where value.dtype == .float16 {
+                allWeights[key] = value.asType(.bfloat16)
+            }
+        }
 
         // Split into talker and code predictor weights
         var talkerWeights: [String: MLXArray] = [:]

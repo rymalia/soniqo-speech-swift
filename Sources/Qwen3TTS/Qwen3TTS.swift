@@ -1684,7 +1684,8 @@ public extension Qwen3TTSModel {
         // Load Talker + Code Predictor + Speaker Encoder weights (single safetensors load)
         progressHandler?(0.7, "Loading TTS model weights...")
         try TTSWeightLoader.loadTalkerAndCodePredictorWeights(
-            talker: model.talker, codePredictor: model.codePredictor, from: mainCacheDir)
+            talker: model.talker, codePredictor: model.codePredictor, from: mainCacheDir,
+            castFloat16ToBFloat16: detectedBits == 0)
         try TTSWeightLoader.loadSpeakerEncoderWeights(
             into: model.speakerEncoder, from: mainCacheDir)
 
