@@ -183,8 +183,8 @@ public struct SpeakCommand: ParsableCommand {
     @Option(name: .long, help: "[f5] Reference transcript: the text content of --voice-sample. Required for zero-shot cloning.")
     public var f5ReferenceText: String?
 
-    @Option(name: .long, help: "[f5] Flow-matching steps (default 32)")
-    public var f5Steps: Int = 32
+    @Option(name: .long, help: "[f5] Flow-matching steps (default 16; use 32 for maximum fidelity)")
+    public var f5Steps: Int = 16
 
     @Option(name: .long, help: "[f5] Classifier-free guidance strength (default 2.0)")
     public var f5CfgStrength: Float = 2.0
@@ -1187,7 +1187,7 @@ public struct SpeakCommand: ParsableCommand {
             if f5Speed != 1.0 {
                 print("  Speaking rate: \(f5Speed)x")
             }
-            if f5Steps != 32 || f5CfgStrength != 2.0 || f5Sway != -1.0 {
+            if f5Steps != 16 || f5CfgStrength != 2.0 || f5Sway != -1.0 {
                 print("  Sampling: steps \(f5Steps), cfg \(f5CfgStrength), sway \(f5Sway)")
             }
 

@@ -736,7 +736,7 @@ final class SpeakCommandTests: XCTestCase {
         XCTAssertEqual(speak.f5ReferenceText, "Reference transcript.")
         XCTAssertEqual(speak.f5ModelId, "aufklarer/F5TTS-v1-Base-MLX-fp16")
         XCTAssertNil(speak.f5BundleDir)
-        XCTAssertEqual(speak.f5Steps, 32)
+        XCTAssertEqual(speak.f5Steps, 16)
         XCTAssertEqual(speak.f5CfgStrength, 2.0, accuracy: 0.001)
         XCTAssertEqual(speak.f5Sway, -1.0, accuracy: 0.001)
         XCTAssertEqual(speak.f5Speed, 1.0, accuracy: 0.001)

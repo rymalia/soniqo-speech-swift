@@ -12,7 +12,7 @@ public struct F5TTSSynthesisOptions: Equatable, Sendable {
     public let targetRMS: Float
 
     public init(
-        steps: Int = 32,
+        steps: Int = 16,
         cfgStrength: Float = 2.0,
         swaySamplingCoef: Float? = -1.0,
         speed: Float = 1.0,

@@ -169,19 +169,47 @@ public final class HiggsTTSModel: SpeechGenerationModel, ModelMemoryManageable, 
             bocId: config.audioBOCTokenId,
             eocId: config.audioEOCTokenId)
         var rows: [[Int32]] = []
-        for step in 0..<options.maxNewTokens {
-            let logits = fused.logits(last).reshaped(
-                config.audioNumCodebooks, config.audioCodebookSize)
-            let sampled = sample(logits: logits, options: options)
-            let codes = try sampler.advance(sampled)
-            rows.append(codes)
-            if sampler.isDone { break }
+        let codebooks = config.audioNumCodebooks
+        let rampIndex = MLXArray(0..<Int32(codebooks))
 
-            let next = fused.embed(
-                MLXArray(codes).reshaped(1, 1, config.audioNumCodebooks))
-            let (h, advanced) = backbone.forward(embeddings: next, state: state)
-            state = advanced
-            last = h[0..., -1, 0...]
+        // Samples codes for a hidden state with the delay ramp masked
+        // on-device, so the result can feed back without a CPU round trip.
+        // `HiggsTTSSamplerState.advance` re-applies the same mask
+        // idempotently and keeps owning the EOC stop logic.
+        func sampleCodes(_ hidden: MLXArray, step: Int) -> MLXArray {
+            let logits = fused.logits(hidden).reshaped(codebooks, config.audioCodebookSize)
+            var codes = sampleOnDevice(logits: logits, options: options)
+            if step < codebooks - 1 {
+                codes = MLX.which(
+                    rampIndex .>= Int32(step + 1),
+                    MLXArray(config.audioBOCTokenId),
+                    codes)
+            }
+            return codes
+        }
+
+        // Software pipeline: launch step t+1's forward pass before reading
+        // step t's codes, overlapping the CPU-side state machine with GPU
+        // compute. Costs one discarded in-flight step at EOC.
+        var current = sampleCodes(last, step: 0)
+        asyncEval(current)
+        for step in 0..<options.maxNewTokens {
+            var upcoming: MLXArray?
+            if step + 1 < options.maxNewTokens {
+                let next = fused.embed(current.reshaped(1, 1, codebooks))
+                let (h, advanced) = backbone.forward(embeddings: next, state: state)
+                state = advanced
+                last = h[0..., -1, 0...]
+                let nextCodes = sampleCodes(last, step: step + 1)
+                asyncEval(nextCodes)
+                upcoming = nextCodes
+            }
+
+            let row = try sampler.advance(current.asArray(Int32.self))
+            rows.append(row)
+            if sampler.isDone { break }
+            guard let upcoming else { break }
+            current = upcoming
             if step % 64 == 63 {
                 progressHandler?(min(0.76 + Double(step) / Double(options.maxNewTokens) * 0.2, 0.95),
                                  "Sampling Higgs audio frames")
@@ -374,12 +402,10 @@ public final class HiggsTTSModel: SpeechGenerationModel, ModelMemoryManageable, 
         return concatenated(pieces, axis: 1)
     }
 
-    /// Independent per-codebook sampling over `[N, V]` logits.
-    private func sample(logits: MLXArray, options: HiggsTTSSynthesisOptions) -> [Int32] {
+    /// Independent per-codebook sampling over `[N, V]` logits, kept on-device.
+    private func sampleOnDevice(logits: MLXArray, options: HiggsTTSSynthesisOptions) -> MLXArray {
         if options.temperature <= 1e-5 || options.topK == 1 {
-            let ids = argMax(logits, axis: -1).asType(.int32)
-            eval(ids)
-            return ids.asArray(Int32.self)
+            return argMax(logits, axis: -1).asType(.int32)
         }
         var scaled = logits / options.temperature
         if let topK = options.topK, topK < config.audioCodebookSize {
@@ -400,9 +426,7 @@ public final class HiggsTTSModel: SpeechGenerationModel, ModelMemoryManageable, 
             mask = putAlong(mask, order, values: maskSorted, axis: -1)
             scaled = MLX.which(mask, -Float.infinity, scaled)
         }
-        let ids = MLXRandom.categorical(scaled, axis: -1).asType(.int32)
-        eval(ids)
-        return ids.asArray(Int32.self)
+        return MLXRandom.categorical(scaled, axis: -1).asType(.int32)
     }
 
     private func runtime(
