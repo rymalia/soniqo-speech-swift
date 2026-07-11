@@ -52,25 +52,25 @@ public final class Qwen35PipelineLLM: PipelineLLM {
 
         let stream = model.generateStream(messages: fullMessages, sampling: sampling)
         let semaphore = DispatchSemaphore(value: 0)
-        var fullResponse = ""
 
         Task {
+            defer {
+                // Pipeline consumers require exactly one terminal marker, including when a model
+                // emits no text, fails before its first token, or is cancelled.
+                onToken("", true)
+                semaphore.signal()
+            }
             do {
                 for try await chunk in stream {
                     guard !self.cancelled else { break }
-                    fullResponse += chunk
                     self.onToken?(chunk)
                     onToken(chunk, false)
                 }
+            } catch is CancellationError {
+                // Cancellation is an expected control-flow path.
             } catch {
                 FileHandle.standardError.write(Data("Qwen35PipelineLLM: generation failed: \(error)\n".utf8))
             }
-
-            // ALWAYS send the final marker — even for an empty or failed generation. Consumers
-            // (voice pipelines) block their turn on it; skipping it on empty output left them
-            // waiting forever ("stuck thinking") with the error swallowed.
-            onToken("", true)
-            semaphore.signal()
         }
 
         semaphore.wait()
