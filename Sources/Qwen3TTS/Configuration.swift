@@ -278,8 +278,9 @@ public enum TTSModelVariant: String, CaseIterable, Sendable {
     case base = "aufklarer/Qwen3-TTS-12Hz-0.6B-Base-MLX-8bit"
     case base17B8bit = "aufklarer/Qwen3-TTS-12Hz-1.7B-Base-MLX-8bit"
     case base17Bbf16 = "aufklarer/Qwen3-TTS-12Hz-1.7B-Base-MLX-bf16"
-    case customVoice = "aufklarer/Qwen3-TTS-12Hz-0.6B-CustomVoice-MLX-8bit"
-    case customVoiceBf16 = "aufklarer/Qwen3-TTS-12Hz-0.6B-CustomVoice-MLX-bf16"
+    // CustomVoice ships full precision only — the 8-bit bundle was retired
+    // (synthesis quantization audibly degrades speech).
+    case customVoice = "aufklarer/Qwen3-TTS-12Hz-0.6B-CustomVoice-MLX-bf16"
 }
 
 // MARK: - Combined TTS Config

@@ -168,8 +168,11 @@ Qwen3-TTS ships in two variants with identical architecture (Talker + Code Predi
 | **Base** | 0.6B | 8-bit | `aufklarer/Qwen3-TTS-12Hz-0.6B-Base-MLX-8bit` | None (single default voice) |
 | **Base** | 1.7B | 8-bit | `aufklarer/Qwen3-TTS-12Hz-1.7B-Base-MLX-8bit` | None (single default voice) |
 | **Base** | 1.7B | bf16 | `aufklarer/Qwen3-TTS-12Hz-1.7B-Base-MLX-bf16` | None (single default voice) |
-| **CustomVoice** | 0.6B | 8-bit | `aufklarer/Qwen3-TTS-12Hz-0.6B-CustomVoice-MLX-8bit` | 9 preset voices + instruction control |
-| **CustomVoice** | 0.6B | bf16 | `aufklarer/Qwen3-TTS-12Hz-0.6B-CustomVoice-MLX-bf16` | 9 preset voices + instruction control |
+| **CustomVoice** | 0.6B | bf16 | `aufklarer/Qwen3-TTS-12Hz-0.6B-CustomVoice-MLX-bf16` | 9 preset voices + instruction control (8-bit bundle retired) |
+
+Float bundles load with float16 weights promoted to bfloat16: the talker's
+cached incremental decode is numerically unstable in float16 (prefill is
+fine, step logits degenerate), while upstream runs bfloat16 throughout.
 
 ### CustomVoice Speakers
 
