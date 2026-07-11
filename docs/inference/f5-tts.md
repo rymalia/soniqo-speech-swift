@@ -19,7 +19,7 @@ let audio = try await model.generate(
     referenceAudio: URL(fileURLWithPath: "/path/to/reference.wav"),
     referenceText: "The words spoken in the reference recording.",
     options: try F5TTSSynthesisOptions(
-        steps: 32,
+        steps: 16,
         cfgStrength: 2.0,
         swaySamplingCoef: -1.0,
         speed: 1.0,
@@ -69,7 +69,7 @@ Vocos, and writes 24 kHz mono WAV.
 | `--f5-reference-text <text>` | Required transcript for the reference audio. |
 | `--f5-model-id <repo>` | Defaults to `aufklarer/F5TTS-v1-Base-MLX-fp16`. |
 | `--f5-bundle-dir <path>` | Loads a local exported bundle instead of Hugging Face. |
-| `--f5-steps <n>` | Flow-matching steps; defaults to `32`. |
+| `--f5-steps <n>` | Flow-matching steps; defaults to `16` (identical ASR roundtrips vs 32 at 2x the speed; use `32` for maximum fidelity). |
 | `--f5-cfg-strength <value>` | Classifier-free guidance strength; defaults to `2.0`. |
 | `--f5-sway <value>` | Sway sampling coefficient; defaults to `-1.0`. |
 | `--f5-speed <value>` | Speaking-rate multiplier; values above `1.0` shorten generated speech. |

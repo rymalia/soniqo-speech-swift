@@ -65,12 +65,20 @@ the exporter's REFERENCES.md in speech-models):
   reference takes ~0.6 s.
 - **End-to-end native gates** (Swift encoder → LM → decoder, cloned voice,
   Qwen3-ASR roundtrips at temperature 0.8): English lexical overlap 1.00,
-  Mandarin CER 0.000, RTF ≈ 1 on Apple Silicon before optimization.
+  Mandarin CER 0.000.
+- **Speed**: RTF 0.78 (release build, Apple M5 Pro) for both cloned and
+  reference-free synthesis after the pipelined decode loop — on-device
+  sampling with a GPU-masked delay ramp and `asyncEval` overlap; the
+  remaining cost is the 4B bf16 memory-bandwidth roofline. See
+  `docs/benchmarks/voice-cloning-tts.md`.
 - The CLI defaults to temperature 0.8: at the reference's 1.0, single-sentence
   roundtrips wobble (measured across two full reference gate runs).
 
 Remaining work:
 
-- Quantized bundle variant (int8/int4) behind the same roundtrip gates.
-- RTF optimization and streaming synthesis.
+- Streaming synthesis (chunked codec decode as frames arrive) and per-voice
+  prefix KV caching for repeated same-voice generations.
 - Broader language QA beyond the en/zh/es/de/ja gate set.
+
+Quantized variants are intentionally not planned: synthesis stays at
+reference precision because quantization audibly degrades speech.
